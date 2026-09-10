@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#f2f5f1" />
+    <meta name="description" content="할 일과 반복 습관을 한곳에서 관리하는 My Daily Todo 모바일 목업" />
+    <title>My Daily Todo</title>
+    <link rel="stylesheet" href="styles.css?v=20260910-6" />
+  </head>
+  <body>
+    <main class="app-shell" aria-label="My Daily Todo 앱 목업">
+      <header class="app-header">
+        <div class="header-date">
+          <p class="eyebrow" id="today-label">2026년 9월 9일 수요일</p>
+          <button class="today-button" id="go-today" type="button">현재</button>
+        </div>
+        <div class="header-actions">
+          <button class="icon-button calendar-button" type="button" aria-label="캘린더 열기"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14a2 2 0 0 1 2 2v14H3V6a2 2 0 0 1 2-2Zm0 5h14M8 2v4m8-4v4"/></svg></button>
+          <button class="icon-button avatar-button" id="open-settings" type="button" aria-label="설정 열기"><span>MJ</span></button>
+        </div>
+      </header>
+
+      <div class="date-row">
+        <section class="week-strip" id="week-strip" aria-label="날짜 선택">
+          <button class="day-button" type="button" data-date="2026-09-06"><span>일</span><strong>6</strong></button>
+          <button class="day-button" type="button" data-date="2026-09-07"><span>월</span><strong>7</strong></button>
+          <button class="day-button" type="button" data-date="2026-09-08"><span>화</span><strong>8</strong></button>
+          <button class="day-button is-selected" type="button" data-date="2026-09-09"><span>수</span><strong>9</strong><i></i></button>
+          <button class="day-button" type="button" data-date="2026-09-10"><span>목</span><strong>10</strong></button>
+          <button class="day-button" type="button" data-date="2026-09-11"><span>금</span><strong>11</strong></button>
+          <button class="day-button" type="button" data-date="2026-09-12"><span>토</span><strong>12</strong></button>
+        </section>
+      </div>
+
+      <section class="progress-card" aria-labelledby="progress-title">
+        <div class="progress-heading"><h2 id="progress-title">선택한 날짜 진행률</h2><div class="progress-numbers"><span id="done-count">2</span> / <span id="total-count">5</span><strong id="progress-percent">40%</strong></div></div>
+        <div class="progress-track" id="progress-track" role="progressbar" aria-label="오늘 진행률" aria-valuemin="0" aria-valuemax="100" aria-valuenow="40"><span id="progress-fill"></span></div>
+      </section>
+
+      <section class="content-section" aria-labelledby="daily-heading">
+        <div class="section-heading-row">
+          <div><p class="section-kicker">DAILY LIST</p><h2 id="daily-heading">오늘의 목록</h2></div>
+          <button class="mini-add-button" id="open-add" type="button">NEW TASK <span>+</span></button>
+        </div>
+        <div class="unified-list" id="daily-list" aria-live="polite"></div>
+      </section>
+
+      <div class="bottom-space" aria-hidden="true"></div>
+    </main>
+
+    <section class="calendar-view" id="calendar-view" aria-labelledby="calendar-title" hidden>
+      <header class="calendar-header">
+        <button class="icon-button back-button" id="close-calendar" type="button" aria-label="일정으로 돌아가기">‹</button>
+        <h1 id="calendar-title">캘린더</h1>
+        <button class="today-button" id="calendar-today" type="button">오늘</button>
+      </header>
+      <div class="month-heading">
+        <button type="button" id="prev-month" aria-label="이전 달">‹</button>
+        <h2 id="calendar-month">2026년 9월</h2>
+        <button type="button" id="next-month" aria-label="다음 달">›</button>
+      </div>
+      <div class="calendar-weekdays" aria-hidden="true"><span>일</span><span>월</span><span>화</span><span>수</span><span>목</span><span>금</span><span>토</span></div>
+      <div class="calendar-grid" id="calendar-grid" aria-label="월간 달력"></div>
+      <section class="calendar-agenda" aria-labelledby="agenda-title">
+        <div class="section-heading-row"><div><p class="section-kicker">SELECTED DAY</p><h2 id="agenda-title">선택한 날짜 일정</h2></div><span class="section-meta" id="agenda-count">0개</span></div>
+        <div id="agenda-list"></div>
+        <button class="agenda-open-button" id="open-agenda-date" type="button">이 날짜 일정 보기</button>
+      </section>
+    </section>
+
+    <div class="modal-backdrop" id="task-modal" hidden>
+      <section class="bottom-sheet" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+        <div class="sheet-handle" aria-hidden="true"></div>
+        <div class="sheet-header"><div><p class="section-kicker">NEW ITEM</p><h2 id="modal-title">새 항목</h2></div><button class="icon-button" id="close-modal" type="button" aria-label="닫기">×</button></div>
+        <form id="task-form">
+          <fieldset class="type-picker">
+            <legend class="sr-only">항목 종류</legend>
+            <label><input type="radio" name="type" value="todo" checked /><span>할 일</span></label>
+            <label><input type="radio" name="type" value="habit" /><span>습관</span></label>
+          </fieldset>
+          <label class="field-label" for="task-title">무엇을 할까요?</label>
+          <input id="task-title" name="title" type="text" placeholder="내용을 입력하세요" autocomplete="off" required />
+          <div class="field-grid" id="quick-fields">
+            <div class="emoji-field">
+              <span class="field-label">이모지 <em>선택</em></span>
+              <input id="task-emoji" name="emoji" type="hidden" />
+              <button class="emoji-trigger" id="emoji-trigger" type="button" aria-expanded="false" aria-controls="emoji-picker"><span id="emoji-preview">✓</span><small>눌러서 선택</small></button>
+              <div class="emoji-picker" id="emoji-picker" aria-label="이모지 선택" hidden>
+                <button type="button" data-emoji="✅">✅</button><button type="button" data-emoji="📌">📌</button><button type="button" data-emoji="📝">📝</button><button type="button" data-emoji="📖">📖</button><button type="button" data-emoji="💧">💧</button><button type="button" data-emoji="🌱">🌱</button><button type="button" data-emoji="🏃">🏃</button><button type="button" data-emoji="💪">💪</button><button type="button" data-emoji="🧘">🧘</button><button type="button" data-emoji="💊">💊</button><button type="button" data-emoji="☕">☕</button><button type="button" data-emoji="⭐">⭐</button>
+              </div>
+            </div>
+            <label id="time-field"><span class="field-label">시간</span><input id="task-time" name="time" type="time" /></label>
+          </div>
+          <label id="date-field"><span class="field-label">날짜</span><input id="task-date" name="date" type="date" /></label>
+          <label><span class="field-label">중요도</span><select id="task-priority" name="priority"><option value="normal">보통</option><option value="high">중요</option><option value="low">낮음</option></select></label>
+          <label class="repeat-toggle"><span><strong>반복</strong><small>선택한 요일마다 반복합니다</small></span><input id="repeat-enabled" name="repeat" type="checkbox" /><i aria-hidden="true"></i></label>
+          <div class="repeat-options" id="repeat-options" hidden>
+            <span class="field-label">반복 요일</span>
+            <div class="weekday-picker" aria-label="반복 요일 선택">
+              <label><input type="checkbox" name="weekdays" value="mon" /><span>월</span></label><label><input type="checkbox" name="weekdays" value="tue" /><span>화</span></label><label><input type="checkbox" name="weekdays" value="wed" /><span>수</span></label><label><input type="checkbox" name="weekdays" value="thu" /><span>목</span></label><label><input type="checkbox" name="weekdays" value="fri" /><span>금</span></label><label><input type="checkbox" name="weekdays" value="sat" /><span>토</span></label><label><input type="checkbox" name="weekdays" value="sun" /><span>일</span></label>
+            </div>
+            <label><span class="field-label">반복 종료일 <em>비워두면 계속 반복</em></span><input id="repeat-until" name="repeatUntil" type="date" /></label>
+          </div>
+          <label class="field-label" for="task-memo">메모 <span>선택</span></label>
+          <textarea id="task-memo" name="memo" rows="3" placeholder="잊지 말아야 할 내용을 적어두세요"></textarea>
+          <fieldset class="scope-picker" id="edit-scope" hidden>
+            <legend>반복 변경 범위</legend>
+            <label><input type="radio" name="editScope" value="today" checked /><span>오늘만</span></label>
+            <label><input type="radio" name="editScope" value="future" /><span>오늘 이후</span></label>
+            <label><input type="radio" name="editScope" value="all" /><span>전체 반복</span></label>
+          </fieldset>
+          <button class="primary-button" id="submit-item" type="submit">할 일 추가</button>
+        </form>
+      </section>
+    </div>
+
+    <div class="modal-backdrop" id="delete-scope-modal" hidden>
+      <section class="bottom-sheet compact-sheet" role="dialog" aria-modal="true" aria-labelledby="delete-scope-title">
+        <div class="sheet-handle" aria-hidden="true"></div>
+        <div class="sheet-header"><div><p class="section-kicker">REPEAT ITEM</p><h2 id="delete-scope-title">어디에서 삭제할까요?</h2></div><button class="icon-button" id="close-delete-scope" type="button" aria-label="닫기">×</button></div>
+        <div class="scope-action-list">
+          <button type="button" data-delete-scope="today"><strong>오늘만</strong><small>선택한 날짜에서만 숨겨요</small></button>
+          <button type="button" data-delete-scope="future"><strong>오늘 이후</strong><small>이전 기록은 그대로 남겨요</small></button>
+          <button type="button" data-delete-scope="all"><strong>전체 반복</strong><small>모든 날짜에서 삭제해요</small></button>
+        </div>
+      </section>
+    </div>
+
+    <div class="modal-backdrop" id="settings-modal" hidden>
+      <section class="bottom-sheet compact-sheet" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+        <div class="sheet-handle" aria-hidden="true"></div>
+        <div class="sheet-header"><div><p class="section-kicker">ACCOUNT</p><h2 id="settings-title">설정</h2></div><button class="icon-button" id="close-settings" type="button" aria-label="닫기">×</button></div>
+        <button class="setting-row" type="button"><span>데이터 백업 및 복원</span><b>›</b></button>
+        <button class="setting-row" type="button"><span>알림 설정</span><b>›</b></button>
+      </section>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden><span id="toast-message">완료했어요.</span><button id="undo-button" type="button">실행 취소</button></div>
+    <script src="app.js?v=20260910-7"></script>
+  </body>
+</html>

@@ -1,0 +1,185 @@
+# My Daily Todo 아키텍처 설계
+
+## 1. 목적과 범위
+
+이 문서는 `requirements.md` 0.4.0과 `requirements-analysis.md`의 확정 결정을 구현 구조로 구체화한다. Phase 1 로컬 MVP와 후속 단계가 결합되는 경계를 정의한다.
+
+현재 Phase 1 구현 범위는 React 클라이언트와 IndexedDB 로컬 저장소뿐이다. Supabase 연결 코드는 보류 자산으로 유지하지만 닉네임, 인증, 서버 백업, 재설치 복원, 다중 기기 동기화는 Phase 2에서 인증 방식 확정 후 활성화한다.
+
+## 2. 핵심 설계 원칙
+
+1. **Local-first**: 화면은 IndexedDB를 먼저 읽고 쓴다. 네트워크 장애가 핵심 기능을 막지 않는다.
+2. **단계적 서버 확장**: Phase 1은 IndexedDB만 사용하고, Phase 2에서 Supabase를 회원별 백업과 여러 기기 간 수렴 계층으로 추가한다.
+3. **도메인 규칙 분리**: 반복 날짜, 통계, 수정 범위 계산은 React·IndexedDB·Supabase에 의존하지 않는 순수 함수다.
+4. **인증 독립성**: 도메인과 저장소 port는 특정 인증 방식이나 Supabase 타입에 의존하지 않는다.
+5. **후속 설계 동결**: Phase 2 인증·동기화와 Phase 3 알림·통계는 해당 단계 시작 전까지 확정 구현으로 취급하지 않는다.
+6. **실패 격리**: 동기화·분석·광고·알림 실패가 로컬 CRUD를 실패시키지 않는다.
+7. **변경 이력 보존**: 반복 규칙 분할과 소프트 삭제로 과거 화면과 동기화 일관성을 유지한다.
+
+## 3. 시스템 컨텍스트
+
+```mermaid
+flowchart LR
+  User[사용자] --> Toss[토스 앱 WebView]
+  Toss --> Web[React 미니앱]
+  Web --> IDB[(IndexedDB)]
+  Web -. Phase 2 .-> Edge[Supabase Edge Functions]
+  Edge --> DB[(Supabase Postgres)]
+  Edge --> Log[운영 로그·오류 지표]
+  Edge -. 알림 단계 .-> ServerAdapter[mTLS 서버 어댑터]
+  ServerAdapter --> TossAPI[앱인토스 서버 API]
+  Toss --> AIT[앱인토스 SDK]
+  AIT --> Notify[알림·광고·분석]
+```
+
+### 신뢰 경계
+
+- React 앱과 IndexedDB는 사용자 기기 영역이다.
+- publishable key는 공개 클라이언트 식별자이며 권한 비밀값으로 취급하지 않는다.
+- Phase 2 서버 비밀값은 어떤 인증 방식을 선택하더라도 브라우저 번들에 포함하지 않는다.
+- Phase 2 서버는 인증된 주체에서 사용자 ID를 결정하고 요청 본문의 사용자 ID를 신뢰하지 않는다.
+- 앱인토스 서버 API 호출은 브라우저에서 하지 않고 mTLS를 지원하는 서버 어댑터에 격리한다.
+
+## 4. 클라이언트 구조
+
+```text
+src/
+  app/                       앱 초기화, 라우팅, 오류 경계
+  features/
+    auth/                    Phase 2 인증 adapter
+    todos/                   할 일 유스케이스와 UI
+    recurrence/              반복 Todo와 날짜별 TodoRecord
+    calendar/                날짜 선택과 보기
+    statistics/              주간·월간 집계
+    backup/                  내보내기·전체 교체 가져오기
+    settings/                알림, 데이터, 계정 설정
+  domain/
+    models/                  Todo, TodoRecord와 값 객체
+    recurrence/              occurrence·규칙 분할
+    statistics/              연속 달성·달성률
+  infrastructure/
+    indexed-db/              스키마, 마이그레이션, repository
+    sync/                    Phase 2 동기화 adapter
+    supabase/                Phase 2 서버 adapter
+    apps-in-toss/            SDK 어댑터
+    telemetry/               개인정보 없는 이벤트 어댑터
+  shared/                    공용 UI, 날짜, 검증, 오류 타입
+```
+
+의존 방향은 `UI → application/use case → domain → port`이며 IndexedDB, Supabase, 앱인토스 SDK는 port 구현체다. 도메인 계층은 React와 외부 SDK를 import하지 않는다.
+
+## 5. 상태 소유권
+
+| 상태 | 소유 위치 | 설명 |
+| --- | --- | --- |
+| 할 일·규칙·기록 | IndexedDB | UI의 즉시 조회·수정 기준 |
+| 미전송 변경 | Phase 2 IndexedDB `outbox` | 재시도 가능한 동기화 작업 |
+| 동기화 커서 | Phase 2 IndexedDB `sync_meta` | 서버 변경 pull 위치 |
+| 인증 세션 | Phase 2 인증 어댑터 | 인증 방식 확정 후 구현 |
+| 회원별 내구 데이터 | Phase 2 Supabase Postgres | 백업·재설치 복원·동기화 기준 |
+| 폼·모달·필터 | React 로컬 상태 | 영속화가 필요 없는 화면 상태 |
+
+## 6. 주요 실행 흐름
+
+### 6.1 앱 시작
+
+1. IndexedDB 스키마를 열고 필요한 마이그레이션을 실행한다.
+2. 로컬 오늘 목록을 표시한다.
+3. Phase 1에서는 네트워크 또는 로그인 상태를 확인하지 않는다.
+4. Phase 2에서만 유효한 인증 세션이 있을 때 백그라운드 동기화를 시작한다.
+
+### 6.2 로컬 변경
+
+1. 입력 검증과 중복 제출 방지를 적용한다.
+2. Phase 1에서는 엔터티 변경을 하나의 IndexedDB 트랜잭션에 저장한다.
+3. UI에 결과를 반영한다.
+4. Phase 2에서는 같은 트랜잭션에 outbox 이벤트를 추가하고 온라인일 때 백그라운드 전송한다.
+
+### 6.3 Phase 2 인증·동기화
+
+인증 방식, 세션 저장, 서버 접근 경계와 동기화 충돌 정책은 현재 확정하지 않는다. Phase 2 시작 시 인증 방식을 먼저 결정하고 `TodoRepository`, `TodoRecordRepository`, `SyncPort` 구현만 추가해 UI와 도메인을 유지한다.
+
+## 7. Phase 1 반복 일정 설계
+
+- 별도 Habit과 RecurrenceRule 엔터티를 두지 않고 `Todo.type`을 `one_time | recurring`으로 구분한다.
+- 반복 Todo row가 내용과 반복 정의를 함께 소유한다.
+- 날짜별 상태와 이 날짜만 수정·삭제는 `TodoRecord`가 소유한다.
+- `targetDate`는 `Asia/Seoul`의 `YYYY-MM-DD`를 사용한다.
+- 주간 계산은 월요일부터 시작한다.
+- occurrence는 무기한 미리 생성하지 않고 조회 범위에서 계산한다.
+- 이 날짜만 수정은 해당 날짜 `TodoRecord`의 override를 갱신한다.
+- 이 날짜부터 이후 수정은 대상 Todo를 전날 종료하거나 시작일이 같으면 소프트 삭제하고, 이후 활성 revision을 소프트 삭제한 뒤 같은 `seriesId`에서 `maxRevision + 1`의 새 Todo row를 생성한다.
+- 기존 Todo row에서는 `repeatEndDate`와 변경 추적 시각만 갱신한다. TodoRecord는 `seriesId + targetDate`로 조회하므로 revision 분할 시 변경하지 않는다.
+- 새 규칙이 더 이상 생성하지 않는 대상일 이후 TodoRecord만 분할 transaction에서 소프트 삭제하며 대상일 이전 기록은 변경하지 않는다. 이후 삭제에서는 대상일 이후 활성 revision과 TodoRecord를 함께 소프트 삭제한다.
+- `dueDate + dueTime` 문자열로 정렬하고 기기 시간대 변경으로 기존 순서를 재해석하지 않는다.
+- 통계 계산과 DST 실제 시각 변환은 Phase 3으로 미룬다.
+
+## 8. Phase 2 동기화 모델 — 동결
+
+아래 내용은 이전 검토 초안이며 확정 설계가 아니다. 인증 방식이 결정될 때 Todo/TodoRecord 모델을 기준으로 다시 검증한다.
+
+```text
+Local mutation
+  → entity 저장 + outbox 저장 (원자적)
+  → POST /sync/push
+  → 서버 idempotency_key 확인
+  → 서버 version 증가
+  → pull cursor 반환
+  → outbox 제거
+```
+
+각 변경은 `operation_id`, `entity_type`, `entity_id`, `operation`, `base_version`, `payload`, `client_timestamp`를 가진다. 삭제는 빈 레코드 제거가 아니라 `deleted_at`이 있는 tombstone으로 전송한다.
+
+동기화 구현 시 다음 요구를 만족해야 하지만 구체 정책은 아직 결정하지 않는다.
+
+- 동일 base version: 변경 적용 후 version 증가
+- 다른 base version: 서버가 `409 VERSION_CONFLICT`와 최신 엔터티 반환
+- 삭제와 수정 충돌: 삭제 우선
+- 자동 병합하지 못한 제목·메모 충돌: 최신 서버본 유지, 로컬본을 충돌 보관함에 저장
+
+## 9. Phase 2 보안 아키텍처 — 동결
+
+### 이전 권장 초안 — 구현 금지
+
+- 업무 테이블은 Data API의 `anon`·`authenticated` 직접 권한을 회수한다.
+- 닉네임 등록, 세션 검증, 동기화, 탈퇴는 Edge Function에서 처리한다.
+- Edge Function만 `service_role`을 사용하며 브라우저 번들에는 포함하지 않는다.
+- 회원 데이터 쿼리는 검증된 세션의 `user_id`를 서버가 주입한다.
+- 닉네임 등록 API에는 IP·기기 단위 요청 제한과 봇 방어를 둔다.
+- 로그에는 닉네임, 할 일 제목·메모, 원문 토큰을 남기지 않는다.
+
+현재 `public SECURITY DEFINER` RPC와 Edge Function 안은 모두 확정하지 않는다. 기존 migration은 적용하지 않으며 Phase 2 인증 결정 후 보안 구조를 다시 설계한다.
+
+## 10. 오류와 관측성
+
+| 오류 분류 | 사용자 처리 | 시스템 처리 |
+| --- | --- | --- |
+| 입력 오류 | 필드 옆 수정 방법 | 서버 호출 안 함 |
+| 로컬 저장 실패 | 입력 유지, 재시도 | 트랜잭션 롤백 |
+| Phase 2 오프라인 | 로컬 사용 유지 | 동기화 정책 확정 후 처리 |
+| Phase 2 세션 오류 | 재연결 안내 | 데이터 전송 중단 |
+| Phase 2 동기화 충돌 | 로컬 사용 지속 | 충돌 정책 확정 후 처리 |
+| 광고·분석 실패 | 사용자에게 방해 없음 | 제한된 오류 코드만 기록 |
+
+관측 이벤트는 `event_name`, 앱 버전, 플랫폼, 익명 설치 ID, 오류 코드, 처리 시간만 허용한다. 사용자 입력값과 세션 토큰은 금지한다.
+
+## 11. 성능과 배포
+
+- 첫 화면에서는 TDS Provider를 올리지 않고 실제 TDS 컴포넌트가 필요한 화면에서 lazy load한다.
+- 1,000개 항목은 인덱스 조회, 안정적인 정렬, 필요 시 가상 목록으로 처리한다.
+- 날짜 범위를 제한해 규칙과 기록을 조회한다.
+- `npm run check`로 lint·test·웹 빌드를 검증하고 `npm run build`로 `.ait`를 생성한다.
+- `apps-in-toss.config.ts`의 `appName`은 콘솔 값과 동일하게 유지한다.
+
+## 12. 요구사항 추적
+
+| 아키텍처 영역 | 요구사항 |
+| --- | --- |
+| Todo aggregate와 원자 저장 | `TODO-001`~`TODO-008` |
+| 쿼리·인덱스·빈 상태 | `LIST-001`~`LIST-005` |
+| Todo 반복 정의와 TodoRecord | `HABIT-001`~`HABIT-005`, `HABIT-007`~`HABIT-008` |
+| Phase 3 통계 | `HABIT-006` |
+| reminder adapter | `NOTI-001`~`NOTI-008` |
+| IndexedDB·백업 | `DATA-001`~`DATA-007` |
+| Edge Function·세션·outbox | `SYNC-001`~`SYNC-010` |
+| 격리된 광고·분석 adapter | `AD-001`~`AD-009`, `ANALYTICS-001`~`ANALYTICS-008` |
