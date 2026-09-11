@@ -49,6 +49,7 @@ erDiagram
 | `revision` | `number \| null` | 반복 Todo만 1 이상 |
 | `title` | `string` | trim 후 1~120자 |
 | `memo` | `string` | 최대 2,000자, 기본 `''` |
+| `emoji` | `string` | 목록 아이콘, 기본 `✅` |
 | `status` | `'pending' \| 'completed' \| null` | 일반 Todo만 사용 |
 | `priority` | `'low' \| 'normal' \| 'high'` | 필수 |
 | `dueDate` | `string \| null` | 일반 Todo의 `YYYY-MM-DD`, 반복 Todo는 null |
@@ -142,9 +143,9 @@ IndexedDB store 이름은 `todoRecords`다. 반복 occurrence의 수행 상태�
 - Phase 1은 한국 시간만 지원하고 저장된 날짜·시각을 기기 시간대 변경에 따라 재해석하지 않는다.
 - UTC 실제 시각 변환, DST gap/fold, 알림 예약 정책은 Phase 3에서 결정한다.
 
-## 6. IndexedDB schema version 1
+## 6. IndexedDB schema version 2
 
-DB 이름은 `my-daily-todo`, version은 `1`이다.
+DB 이름은 `my-daily-todo`, 현재 version은 `2`다. 초기 React 목업이 같은 DB 이름의 version 1에 `todos` store만 생성했으므로, version 2는 해당 데이터를 보존하며 정식 필드로 변환하고 누락된 store·index를 추가한다. 변환 또는 index 생성에 실패하면 upgrade transaction을 abort해 version 1 데이터를 유지한다.
 
 | object store | keyPath | 인덱스 |
 | --- | --- | --- |

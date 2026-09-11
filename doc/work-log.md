@@ -260,10 +260,68 @@
 - `npm run check` 결과 ESLint, Vitest 8개, TypeScript와 Vite production build가 모두 통과했다.
 - 브라우저에서 목업 기반 목록과 진행률 표시를 확인했다.
 - 제한: 수정·삭제, 반복 Todo/TodoRecord, 월간 캘린더, 필터·정렬, 백업·복원 및 IndexedDB 통합 테스트는 아직 구현되지 않았다.
-## 2026-09-11 - 목업 DOM·스타일 정합성 보정
 
-- React 목록을 정적 목업과 같은 `swipe-item`, `item-card`, `item-icon`, `item-body`, `item-check`, `drag-handle` 구조로 변경했다.
-- TODO/ROUTINE 태그, 우선순위 표시, 루틴 연속 기록, 수정·건너뜀·삭제 액션 영역과 SVG 캘린더 아이콘을 목업 기준으로 복원했다.
-- 기존 IndexedDB가 존재하는 개발 환경에도 오늘 날짜 루틴 예시가 누락되지 않도록 ID 기준 병합을 추가했다.
-- `npm run check` 결과 ESLint, Vitest 8개, TypeScript와 Vite production build가 모두 통과했다.
-- 제한: 스와이프/드래그, 수정·삭제, 월간 캘린더와 반복 입력의 실제 동작은 후속 구현 대상이다.
+## 2026-09-11 — Phase 1 Todo 화면 1차 MVP
+
+### 완료
+
+- `doc/api-contract.md`에 Phase 1 타입, 함수 시그니처, 오류 모델, IndexedDB 원자성 및 5초 삭제 실행 취소 계약을 추가했다.
+- 초기 React 목업의 불완전한 IndexedDB v1을 감지해 기존 Todo를 정식 `TodoData`로 변환하고 `todoRecords`, `meta`, 조회 인덱스를 추가하는 v2 migration을 구현했다.
+- 일반 Todo 생성·수정·완료/미완료·소프트 삭제와 실행 취소를 IndexedDB transaction에 연결했다. 완료 상태와 `completedAt`은 항상 함께 변경한다.
+- 오늘·예정·완료·선택 날짜 화면, 상태·우선순위 필터, 마감·우선순위·생성 시각 정렬, 지난 마감/오늘 마감의 텍스트 상태를 추가했다.
+- 월간 6주 캘린더, 일정 표시와 선택 날짜 목록을 추가했다.
+- 매일·매주/특정 요일·N일 간격 반복 생성, 날짜별 완료/미완료·건너뜀, 이 날짜만/이 날짜부터 이후 수정·삭제를 Todo/TodoRecord 모델로 구현했다.
+- 반복의 이후 수정은 과거 revision 종료, 새 revision 생성, 호환되지 않는 미래 record 정리를 하나의 transaction에서 처리한다.
+- 모달 첫 입력 포커스, Escape 닫기, Tab 포커스 순환, 닫은 뒤 호출 버튼 포커스 복귀를 적용했다. 주요 버튼과 입력은 최소 44px 터치 영역을 확보하고 상태·우선순위를 텍스트로도 표시한다.
+- 빈 상태, 필터 결과 없음, 로딩, 저장/조회 실패와 다시 불러오기 안내를 추가했다. 저장 중 제출 버튼과 항목 작업을 비활성화해 중복 제출을 막는다.
+- 자동 예시 데이터 생성을 제거해 빈 저장소는 실제 빈 상태로 시작한다. Phase 1 실행 경로는 Supabase를 읽거나 쓰지 않는다.
+
+### 검증
+
+- `npm run check` 통과
+  - ESLint 통과
+  - Vitest 5개 파일, 22개 테스트 통과
+  - TypeScript와 Vite production web build 통과
+- 반복 월말·윤년·월요일 기준 격주 계산, 날짜 override/건너뜀, 필터·정렬 순수 함수 테스트를 추가했다.
+- IndexedDB 생성·완료/복구 원자성, 잘못된 입력의 무쓰기, 삭제/실행 취소, 반복 revision 분할, 잘못된 발생일 record 거부, v1 migration 통합 테스트를 추가했다.
+- React 빈 상태, 모달 포커스 이동/복귀, 저장 중 중복 제출 차단 테스트를 추가했다.
+
+### 남은 제한
+
+- 반복 Todo의 예정 화면은 무한 occurrence 생성을 피하기 위해 앞으로 31일만 계산한다. 그 이후 날짜는 월간 캘린더에서 조회할 수 있고, 일반 Todo는 날짜 제한 없이 예정 화면에 표시한다.
+- 5초 삭제 실행 취소의 실제 타이머 경과와 저장 실패 주입 E2E, 1,000개 목록 성능, Android·iOS 실제 토스 앱 및 스크린리더 수동 검증은 아직 수행하지 않았다.
+- 완료 항목 일괄 정리, JSON 백업·복원·전체 초기화는 다음 P1 범위다.
+- 알림·통계·인증·Supabase 동기화·광고는 계획된 후속 Phase까지 구현하지 않는다.
+
+## 2026-09-11 — Phase 1 데이터 관리 P1
+
+### 완료
+
+- 완료 화면에서 완료된 일반 Todo를 한 번에 소프트 삭제하고 5초 안에 실행 취소할 수 있게 했다. 반복 Todo의 날짜별 완료 기록은 이후 통계와 과거 표시를 위해 보존한다.
+- 데이터 관리 시트에 JSON 백업 내보내기, 백업 가져오기, 전체 데이터 초기화를 추가했다.
+- 백업은 `format`, `schemaVersion`, `exportedAt`, `timezone`, Todo·TodoRecord 전체 스냅샷을 포함한다.
+- 가져오기 전에 5MB·항목 수 상한, 루트 메타데이터, 엔터티 불변식, ID와 논리 키 중복, 반복 revision·활성 범위, 고아 TodoRecord를 전부 검증한다.
+- 검증된 백업만 `todos + todoRecords + meta` 단일 transaction에서 전체 교체하고, 잘못된 파일은 기존 데이터에 쓰기 transaction을 열지 않는다.
+- 백업 복원과 전체 초기화 전에 별도 확인 모달을 제공하고, 완료·실패 피드백과 포커스 이동·복귀를 기존 접근성 흐름에 연결했다.
+
+### 검증
+
+- `npm run check` 통과
+  - ESLint 통과
+  - Vitest 6개 파일, 27개 테스트 통과
+  - TypeScript와 Vite production web build 통과
+- 백업 왕복, 중복 수행 기록 거부, 잘못된 백업 입력 시 기존 데이터 불변, 완료 일반 Todo 정리와 실행 취소, 반복 완료 이력 보존 테스트를 추가했다.
+- React 데이터 관리 진입과 전체 초기화 확인 모달 테스트를 추가했다.
+
+### 남은 제한
+
+- 실제 브라우저 파일 다운로드·파일 선택 동작, 대용량 백업의 WebView 메모리 사용량, transaction 중간 강제 실패 주입은 아직 수동 검증하지 않았다.
+- 1,000개 목록 성능, Android·iOS 실제 토스 앱, 스크린리더·큰 글자 수동 검증은 다음 품질 작업이다.
+
+## 2026-09-11 — Phase 1 자동화 품질 보완
+
+- 월간 캘린더에 Escape 닫기뿐 아니라 Tab·Shift+Tab 포커스 순환을 추가하고, 닫을 때 캘린더 호출 버튼으로 복귀하는 React 테스트를 추가했다.
+- 일반 Todo 1,000개를 날짜별로 materialize한 뒤 상태·우선순위 필터와 마감 정렬을 수행하는 성능 회귀 테스트를 추가했다. 자동 테스트 예산은 500ms로 두었다.
+- `npx tsc -b`, `npm run lint`, `git diff --check`는 통과했다.
+- 이 변경 직전의 `npm run check`는 Vitest 27개와 production web build까지 통과했다. 품질 보완 후 전체 Vitest·Vite 재실행은 샌드박스 외 실행 권한이 허용되지 않아 검증하지 못했다.
+- 실제 Android·iOS 토스 앱, 스크린리더·큰 글자, 파일 다운로드·선택과 1,000개 DOM 렌더링 체감 성능은 여전히 수동 검증이 필요하다.
