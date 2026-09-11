@@ -252,3 +252,18 @@
 
 - 정적 목업은 localStorage를 사용하며 프로덕션 IndexedDB 모델과 별개다.
 - 실제 삭제 실행과 실행 취소, 반복 수정 범위별 데이터 결과, Android·iOS 토스 WebView는 이번 검증에서 실행하지 않았다.
+## 2026-09-10 - Phase 1 목업 React 이전 시작
+
+- 정적 `prototype/`의 날짜 헤더, 주간 날짜 선택, 진행률, 일일 목록, 새 할 일 바텀시트를 `src/App.tsx`로 이전했다.
+- 일반 Todo 생성과 완료/미완료 전환을 IndexedDB `my-daily-todo/todos` 저장소에 연결했다. 최초 실행에만 오늘 날짜용 예시 데이터를 생성한다.
+- 완료 상태와 `completedAt`은 하나의 객체 저장 작업으로 함께 변경한다. 저장 중 추가 버튼을 비활성화해 중복 제출을 막는다.
+- `npm run check` 결과 ESLint, Vitest 8개, TypeScript와 Vite production build가 모두 통과했다.
+- 브라우저에서 목업 기반 목록과 진행률 표시를 확인했다.
+- 제한: 수정·삭제, 반복 Todo/TodoRecord, 월간 캘린더, 필터·정렬, 백업·복원 및 IndexedDB 통합 테스트는 아직 구현되지 않았다.
+## 2026-09-11 - 목업 DOM·스타일 정합성 보정
+
+- React 목록을 정적 목업과 같은 `swipe-item`, `item-card`, `item-icon`, `item-body`, `item-check`, `drag-handle` 구조로 변경했다.
+- TODO/ROUTINE 태그, 우선순위 표시, 루틴 연속 기록, 수정·건너뜀·삭제 액션 영역과 SVG 캘린더 아이콘을 목업 기준으로 복원했다.
+- 기존 IndexedDB가 존재하는 개발 환경에도 오늘 날짜 루틴 예시가 누락되지 않도록 ID 기준 병합을 추가했다.
+- `npm run check` 결과 ESLint, Vitest 8개, TypeScript와 Vite production build가 모두 통과했다.
+- 제한: 스와이프/드래그, 수정·삭제, 월간 캘린더와 반복 입력의 실제 동작은 후속 구현 대상이다.
