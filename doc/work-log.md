@@ -325,3 +325,28 @@
 - `npx tsc -b`, `npm run lint`, `git diff --check`는 통과했다.
 - 이 변경 직전의 `npm run check`는 Vitest 27개와 production web build까지 통과했다. 품질 보완 후 전체 Vitest·Vite 재실행은 샌드박스 외 실행 권한이 허용되지 않아 검증하지 못했다.
 - 실제 Android·iOS 토스 앱, 스크린리더·큰 글자, 파일 다운로드·선택과 1,000개 DOM 렌더링 체감 성능은 여전히 수동 검증이 필요하다.
+
+## 2026-09-14 — 프로토타입 기준 React UI 정합성 복원
+
+### 완료
+
+- `prototype/index.html`, `prototype/styles.css`, `prototype/app.js`를 UI의 단일 기준으로 삼아 React 화면의 DOM 구조, 클래스, 문구와 핵심 상호작용을 다시 맞췄다.
+- 메인 화면을 날짜 헤더·현재 버튼, SVG 캘린더, MJ 아바타, 일요일 시작 7일 스트립, 선택 날짜 진행률, `DAILY LIST`, `NEW TASK` 구성으로 복원하고 오늘·예정·완료 탭, 필터·정렬, 상단 데이터 메뉴를 제거했다.
+- 목록 항목을 `swipe-item`/`item-card` 구조와 `TODO`/`ROUTINE`, 메모, 중요도 또는 연속 달성, 오른쪽 완료 버튼·순서 변경 손잡이로 복원했다. 스와이프 작업, 키보드·포인터 순서 변경, 날짜 스트립 주 이동을 React 상태로 연결했다.
+- 새 항목 시트의 할 일·습관 선택, 이모지 선택기, 시간·날짜·중요도·반복·요일·종료일·메모와 반복 수정 범위 문구를 프로토타입과 일치시켰다.
+- 캘린더 화면과 선택 날짜 agenda, 설정 시트의 `ACCOUNT`, `데이터 백업 및 복원`, `알림 설정` 문구와 진입 흐름을 복원했다.
+- 기존 IndexedDB CRUD·반복 revision·TodoRecord·삭제 실행 취소·백업 검증 및 복원 함수를 그대로 사용하고 `localStorage`는 도입하지 않았다.
+
+### 검증
+
+- `npm run check` 통과
+  - ESLint 통과
+  - Vitest 6개 파일, 31개 테스트 통과
+  - TypeScript와 Vite production web build 통과
+- React 테스트를 프로토타입 메인 구성, 새 항목 시트, 중복 제출 방지, 포커스 복귀, 설정·백업 진입, 항목 DOM, 캘린더 문구 기준으로 갱신했다.
+- `git diff --check` 통과
+
+### 남은 제한
+
+- 프로토타입의 수동 순서는 저장 데이터 계약을 확장하지 않기 위해 앱 실행 중 React 상태에서만 유지되며, 앱을 다시 열면 기본 시간·생성 순서로 돌아간다.
+- 실제 Android·iOS 토스 WebView의 스와이프·드래그·Safe Area와 백업 파일 선택은 아직 수동 검증이 필요하다.
