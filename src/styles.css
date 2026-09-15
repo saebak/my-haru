@@ -60,3 +60,76 @@
 }
 
 button:disabled { cursor: wait; opacity: .55; }
+
+.header-date .today-button { display: grid; width: 44px; min-width: 44px; height: 44px; min-height: 44px; place-items: center; padding: 0; border: 0; background: transparent; }
+.header-date .today-button span { display: grid; min-width: 34px; min-height: 28px; place-items: center; padding: 0 6px; border: 1px solid #dce4d6; border-radius: 9px; background: #fff; }
+.mini-add-button { min-height: 44px; }
+.mini-add-button { font-size: .82rem; }
+.progress-copy { margin: 12px 0 0; color: #52604a; font-size: .8rem; line-height: 1.5; }
+.schedule-trigger { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; min-height: 50px; padding: 12px; border: 1px solid var(--line); border-radius: 13px; background: #f8faf6; color: var(--ink); text-align: left; font: inherit; font-size: .85rem; }
+.schedule-trigger[aria-expanded="true"] { border-color: var(--primary-dark); background: var(--primary-soft); }
+.schedule-panel { margin-top: 8px; padding: 8px; border: 1px solid var(--line); border-radius: 14px; background: #fff; }
+.schedule-panel .react-datepicker { width: 100%; border: 0; font-family: inherit; }
+.schedule-panel .react-datepicker__month-container { width: 100%; }
+.schedule-panel .react-datepicker__header { border: 0; border-radius: 10px; background: #f5f8f0; }
+.schedule-panel .react-datepicker__current-month { padding: 8px 0; font-size: .95rem; }
+.schedule-panel .react-datepicker__month { margin: 4px 0; }
+.schedule-panel .react-datepicker__week, .schedule-panel .react-datepicker__day-names { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.schedule-panel .react-datepicker__day, .schedule-panel .react-datepicker__day-name { display: grid; place-items: center; width: auto; min-height: 40px; margin: 0; line-height: 1; }
+.schedule-panel .react-datepicker__day--selected, .schedule-panel .react-datepicker__time-container .react-datepicker__time .react-datepicker__time-box ul.react-datepicker__time-list li.react-datepicker__time-list-item--selected { border-radius: 10px; background: var(--primary-dark); color: white; }
+.schedule-panel .react-datepicker__navigation { width: 44px; height: 44px; top: 2px; }
+.schedule-panel .react-datepicker__time-container, .schedule-panel .react-datepicker__time-container .react-datepicker__time .react-datepicker__time-box { width: 100%; }
+.schedule-panel .react-datepicker__time-container .react-datepicker__time .react-datepicker__time-box ul.react-datepicker__time-list { height: 180px !important; }
+.schedule-panel .react-datepicker__time-container .react-datepicker__time .react-datepicker__time-box ul.react-datepicker__time-list li.react-datepicker__time-list-item { min-height: 44px; padding: 12px 4px; }
+.picker-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.picker-actions button { min-height: 44px; padding: 8px 12px; border: 0; border-radius: 10px; background: var(--primary-soft); color: #3d601b; font-weight: 700; }
+.precise-time { display: block; margin-top: 10px; font-size: .75rem; color: #52604a; }
+.field-grid:has(.schedule-panel) { grid-template-columns: 1fr; }
+.date-priority-row { display: grid; grid-template-columns: minmax(0, 1.14fr) minmax(138px, .86fr); align-items: start; gap: 10px; margin: 0 0 4px; }
+.date-priority-row[hidden] { display: none; }
+.date-priority-row:has(.schedule-panel) { grid-template-columns: 1fr; }
+.priority-picker { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; min-width: 0; margin: 0; padding: 0; border: 0; }
+.priority-picker legend { grid-column: 1 / -1; }
+.priority-picker label { position: relative; min-width: 0; }
+.priority-picker input { position: absolute; opacity: 0; pointer-events: none; }
+.priority-picker span { display: grid; min-height: 50px; place-items: center; border: 1px solid #e0e5dc; border-radius: 11px; background: #f9fbf8; color: var(--muted); font-size: .74rem; font-weight: 750; }
+.priority-picker input:checked + span { border-color: var(--primary-dark); background: var(--primary-soft); color: var(--primary-dark); box-shadow: inset 0 0 0 1px var(--primary-dark); }
+.priority-picker input:focus-visible + span { outline: 2px solid var(--primary-dark); outline-offset: 2px; }
+.form-submit-bar { position: sticky; z-index: 35; bottom: 0; margin-top: 10px; padding-top: 10px; background: linear-gradient(180deg, rgba(255,255,255,0), #fff 22%); }
+.form-submit-bar .primary-button { margin-top: 0; }
+.bottom-sheet:has(.form-submit-bar) { max-height: min(96dvh, 760px); }
+.bottom-sheet:has(.form-submit-bar) .sheet-header { margin-bottom: 13px; }
+.bottom-sheet:has(.form-submit-bar) .type-picker { margin-bottom: 13px; }
+.bottom-sheet:has(.form-submit-bar) .field-grid { margin: 12px 0; }
+.bottom-sheet:has(.form-submit-bar) .repeat-toggle { margin: 10px 0; padding-block: 8px; }
+.bottom-sheet:has(.form-submit-bar) textarea { min-height: 64px; }
+.form-dialog-backdrop { align-items: center; padding: max(16px, env(safe-area-inset-top)) 14px max(16px, env(safe-area-inset-bottom)); }
+.form-dialog { width: min(100%, 430px); max-height: min(92dvh, 760px); padding: 18px 22px 22px; border-radius: 26px; box-shadow: 0 20px 56px rgba(17,21,16,.24); animation-name: dialog-in; }
+.form-dialog .sheet-handle { display: none; }
+@keyframes dialog-in { from { transform: translateY(10px) scale(.98); opacity: 0; } }
+.avatar-button svg { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
+.emoji-picker {
+  width: min(342px, calc(100vw - 44px));
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 4px;
+  padding: 8px;
+  overflow: visible;
+}
+.emoji-picker button { min-width: 0; min-height: 38px; aspect-ratio: 1; padding: 0; }
+button:focus-visible, .react-datepicker__day:focus-visible, .react-datepicker__time-list-item:focus-visible { outline: 2px solid var(--primary-dark); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { .week-strip, .progress-track span { transition: none; } }
+
+.date-carousel { display: block; overflow: hidden; padding-block: 3px; margin-top: -3px; touch-action: pan-y pinch-zoom; }
+.date-track { display: flex; width: auto; min-width: 0; gap: 3px; user-select: none; will-change: transform; }
+.date-track .day-button { min-width: 0; flex: 0 0 calc((100% - 18px) / 7); }
+.date-track .day-button { transition: background-color 180ms ease, color 180ms ease; }
+.swipe-item.is-dragging { opacity: .22; box-shadow: none; }
+.drag-overlay { width: min(calc(100vw - 40px), 390px); border-color: #cbdabf; box-shadow: 0 18px 42px rgba(43,57,36,.24); transform: scale(1.025) rotate(.3deg); cursor: grabbing; }
+.drag-overlay-handle { display: grid; width: 32px; min-height: 44px; place-items: center; color: rgba(83,96,78,.7); font-size: 1.08rem; }
+.item-card.is-done { border-color: #b9d994; background: #f5faef; box-shadow: inset 4px 0 0 #86bd43; }
+.item-card.is-done .item-icon { background: #e5f3d3; }
+.item-card.is-done .item-title { color: #66715f; text-decoration-color: #7b8872; text-decoration-thickness: 2px; }
+.item-card.is-done .item-check { background: #78ad39; color: #fff; box-shadow: 0 4px 12px rgba(80,124,31,.22); }
+.completion-badge { display: inline-flex; align-items: center; min-height: 22px; padding: 2px 7px; border-radius: 99px; background: #deefc8; color: #47741d !important; font-size: .68rem; font-weight: 850; text-decoration: none; }
+@media (prefers-reduced-motion: reduce) { .date-track .day-button { transition: none; } .drag-overlay { transform: none; } }
+@media (max-width: 370px) { .date-priority-row { grid-template-columns: 1fr; } }

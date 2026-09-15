@@ -80,8 +80,15 @@ My Daily Todo의 설계·개발·검수에 사용하는 외부 자료를 한곳�
 | 2026-09-09 | Supabase React Quickstart 확인 | Vite 공개 환경변수와 `createClient` 적용 |
 | 2026-09-10 | 설치된 앱인토스 SDK 3.4.0 타입과 CLI 도움말 확인 | `apps-in-toss.config.ts`, `webBundleDir`, 선행 웹 빌드 방식으로 전환 |
 | 2026-09-10 | Supabase RLS·Data API 보안·Database Functions 공식 문서 확인 | 업무 테이블 직접 권한 회수, 공개 `SECURITY DEFINER` RPC 대신 서버 경계 사용 제안 |
+| 2026-09-15 | 앱인토스 WebView 파일 저장 API 확인 | JSON 백업을 `File.saveBase64`로 기기에 저장하고 일반 브라우저만 `<a download>`로 대체 |
 
 ## 7. 추가 공식 자료
+
+- [React Datepicker 공식 예제](https://reactdatepicker.com/) — inline 달력·시간 선택, 한국어 locale, minDate 적용
+- [React Datepicker 공식 저장소](https://github.com/Hacker0x01/react-datepicker) — 설치·접근성·타입 참조
+- [Embla Carousel React](https://www.embla-carousel.com/docs/get-started/react/) — React 캐러셀 초기화와 드래그 스냅
+- [dnd-kit Sortable](https://docs.dndkit.com/presets/sortable) — 포인터·키보드 목록 정렬과 드래그 오버레이
+- [앱인토스 파일 저장](https://developers-apps-in-toss.toss.im/bedrock/reference/framework/%EB%8D%B0%EC%9D%B4%ED%84%B0/saveBase64Data.html) — Base64 데이터의 네이티브 기기 저장
 
 - [TDS Mobile 시작하기](https://tossmini-docs.toss.im/tds-mobile/start/)
 - [Supabase React Quickstart](https://supabase.com/docs/guides/getting-started/quickstarts/reactjs)

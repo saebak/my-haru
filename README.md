@@ -1,85 +1,75 @@
 # My Daily Todo
 
-앱인토스에서 실행할 개인용 할 일·반복 습관 관리 미니앱 프로젝트다. React·TypeScript·Vite와 최신 앱인토스 WebView SDK를 기반으로 하며, Phase 1 데이터는 IndexedDB에만 저장한다. Supabase는 Phase 2 계정·동기화를 위해 연결만 준비돼 있다.
+앱인토스 WebView에서 실행하는 개인용 할 일·반복 습관 관리 미니앱이다. 현재 Phase 1은 로그인 없이 한 기기의 IndexedDB에 데이터를 저장하며, 토스 테스트 버전으로 실제 사용 흐름을 검증하고 있다.
 
-## 기술 스택
+## 현재 구현
 
-- React 18 + TypeScript
-- Vite 6
-- 앱인토스 WebView SDK 3.4.0
-- TDS Mobile 패키지(필요한 컴포넌트 도입 시 Provider 적용)
-- Supabase JavaScript Client 2
-- Vitest + ESLint
+- 할 일과 반복 습관 생성·수정·완료·완료 취소·삭제
+- 반복 습관의 매일·요일 반복, 날짜별 완료·건너뛰기와 날짜만/이후 범위 수정·삭제
+- 한국어 날짜·시간 선택기와 날짜별 목록, 진행률·완료 안내
+- 상단 날짜 캐러셀: 선택 날짜 중앙 배치, 연속 날짜 스와이프 탐색, 날짜를 직접 눌렀을 때만 선택 확정
+- `dnd-kit` 기반 포인터·키보드 목록 정렬과 드래그 오버레이
+- 이모지 40종, 중요도 세그먼트 선택, 날짜·중요도 한 줄 입력
+- 시간 기본값 없음, 반복 기본값 꺼짐, 모바일 중앙 입력 팝업과 화면 안에 고정된 저장 버튼
+- 완료 카드의 체크·배경·취소선·`완료됨` 배지 표시와 완료 토스트 억제
+- IndexedDB 저장·마이그레이션, JSON 백업 내보내기·가져오기·전체 삭제
+- 토스 WebView에서는 `File.saveBase64`, 일반 브라우저에서는 다운로드 API를 사용하는 백업 내보내기
+- 로딩·빈 상태·오류·저장 중 중복 제출 방지와 접근성 포커스 복귀
 
-기존 정적 UI 목업은 `prototype/`에 보존되어 있다. 현재 React 앱은 Phase 1 로컬 모드 시작 화면이며, Todo 기능과 IndexedDB 데이터 스키마는 다음 구현 대상이다. Supabase·닉네임 코드는 Phase 2 검토용으로 보존되어 있지만 현재 실행 경로에서는 호출하지 않는다.
+## 기술과 라이브러리
 
-## 파일 구성
+- React 18.3 + TypeScript 5.7
+- Vite 6.1, 앱인토스 WebView SDK `@apps-in-toss/web-framework` 3.4.0
+- `embla-carousel-react` 8.6: 날짜 캐러셀
+- `@dnd-kit/core` 6.3, `@dnd-kit/sortable` 10.0, `@dnd-kit/utilities` 3.2: 목록 드래그 정렬
+- `react-datepicker` 9.1 + `date-fns` 4.4: 한국어 날짜·시간 선택
+- `fake-indexeddb`: 저장소 테스트 환경
+- Vitest 3, Testing Library, ESLint 9
+- TDS Mobile 패키지는 설치되어 있으나 현재 화면에는 전역 Provider를 적용하지 않는다.
+- Supabase JavaScript Client와 닉네임 세션 코드는 Phase 2 검토용으로만 보존한다.
+
+## 구조
 
 ```text
-.
-├── AGENTS.md                       작업 규칙과 구현 원칙
-├── README.md                       프로젝트 안내
-├── apps-in-toss.config.ts          앱인토스 WebView 설정
-├── vite.config.ts                  Vite 설정
-├── src/                            React 애플리케이션
-├── supabase/                       데이터베이스 마이그레이션과 적용 안내
-├── prototype/                      기존 정적 UI 목업
-└── doc/
-    ├── requirements.md             제품 요구사항 기준선
-    ├── requirements-analysis.md    요구사항 분석과 구현 우선순위
-    ├── reference.md                공식 참고 자료와 확인 시점
-    └── work-log.md                 작업 이력과 다음 작업
+src/
+├── App.tsx                         메인 화면, 입력 팝업, 캘린더, 설정
+├── styles.css                      프로토타입 스타일을 확장한 앱 스타일
+├── components/SchedulePicker.tsx   날짜·시간 선택 컴포넌트
+├── domain/todos/                   날짜 계산, 반복 규칙, 도메인 타입
+├── infrastructure/indexed-db/      IndexedDB 저장소와 마이그레이션
+└── features/backup/                백업 검증·복원·토스 파일 저장
+
+prototype/                           기존 정적 UI 목업과 공통 스타일
+doc/                                 요구사항·설계·공식 참고·작업 로그
+apps-in-toss.config.ts               앱인토스 WebView 설정
 ```
 
-## 설치와 실행
+## 설치와 로컬 실행
 
-앱인토스 SDK 3.4.0의 요구사항에 맞춰 Node.js 24 사용을 권장한다.
+Node.js 24 사용을 권장한다.
 
 ```powershell
 npm install --legacy-peer-deps
 npm run dev
 ```
 
-Phase 1 실행에는 `.env.local`이나 Supabase 연결이 필요하지 않다. 동결된 Phase 2 프로토타입을 별도로 점검할 때만 `.env.example`을 복사하고 Supabase Dashboard의 Connect 화면에서 확인한 공개 값을 입력한다.
-
-```dotenv
-VITE_SUPABASE_URL=https://your-project-ref.supabase.co
-VITE_SUPABASE_PUBLISHABLE_KEY=your-publishable-key
-```
-
-publishable key는 브라우저용 공개 키다. `service_role` 또는 secret key는 프런트엔드 환경변수에 넣으면 안 된다. Phase 2 접근 제어 방식은 아직 확정되지 않았다.
+브라우저에서 [http://127.0.0.1:5176/](http://127.0.0.1:5176/)을 열면 된다. Phase 1 실행에는 `.env.local`이나 Supabase 연결이 필요하지 않다.
 
 ## 검증과 빌드
 
 ```powershell
-npm run check       # lint, test, 일반 웹 프로덕션 빌드
-npm run build       # 앱인토스 .ait 패키징
-npm run preview     # 일반 웹 빌드 미리보기
+npm run lint       # ESLint
+npm test           # Vitest 전체 테스트
+npm run build:web  # TypeScript 검사와 일반 웹 프로덕션 빌드
+npm run check      # lint + test + build:web
+npm run build      # 웹 빌드와 앱인토스 .ait 패키징
+npm run preview    # 웹 빌드 미리보기
 ```
 
-앱인토스 콘솔의 실제 `appName`이 확정되면 `apps-in-toss.config.ts`의 임시 값을 같은 값으로 변경해야 한다. 표시 이름과 아이콘은 최신 SDK 설정 파일이 아니라 앱인토스 콘솔에서 관리한다.
+`my-daily-todo.ait`는 로컬 패키징 산출물이며 저장소에는 커밋하지 않는다. 앱인토스 콘솔에서 `.ait`를 업로드한 뒤 테스트 QR로 토스 앱에서 검증한다. 현재까지 테스트 버전 `20260915-4`까지 등록했으며, 검토 필요 상태의 비공개 테스트 버전이다. 공개 출시는 별도 검토가 필요하다.
 
-## 개발 방향
+## 데이터와 범위
 
-1. 일반·반복 정의를 함께 가진 Todo와 날짜별 TodoRecord 도메인 모델을 구현한다.
-2. 스키마 버전과 migration fixture가 있는 IndexedDB 저장소를 구현한다.
-3. 현재 목업을 React 컴포넌트로 옮기고 날짜 하드코딩을 제거한다.
-4. CRUD, 필터·정렬, 반복 계산, 백업·복원 테스트를 추가한다.
-5. Phase 1 개인 사용을 검증한다.
-6. Phase 2에서 인증 방식을 확정한 뒤 Supabase 백업·재설치 복원·동기화를 추가한다.
+Todo 정의와 반복 수행 기록은 버전이 있는 IndexedDB 스키마에 저장한다. 백업 가져오기는 형식 검증 후 한 트랜잭션으로 기존 데이터를 교체한다. Phase 1에는 계정 로그인, 서버 동기화, 알림, 광고, 다중 기기 복원이 포함되지 않는다. Supabase 연동과 인증 방식은 Phase 2에서 정책·복구 방식 확정 후 진행한다.
 
-세부 범위와 판단 근거는 [요구사항 분석](./doc/requirements-analysis.md), 외부 문서는 [참고 자료](./doc/reference.md), 진행 내역은 [작업 로그](./doc/work-log.md)에서 관리한다.
-
-프로젝트 상세 설계는 다음 문서에서 관리한다.
-
-- [아키텍처 설계](./doc/architecture.md)
-- [데이터베이스 설계](./doc/database-design.md)
-- [서버 API·동기화 설계](./doc/api-design.md)
-- [설계 결정 기록](./doc/decision-log.md)
-
-## 기준 문서
-
-- 제품 요구사항: [doc/requirements.md](./doc/requirements.md)
-- 작업 규칙: [AGENTS.md](./AGENTS.md)
-
-요구사항과 구현이 충돌하면 `doc/requirements.md`를 우선한다. 정책이나 SDK처럼 변경될 수 있는 내용은 구현 착수 시점과 출시 직전에 공식 문서를 다시 확인한다.
+제품 요구사항은 [doc/requirements.md](./doc/requirements.md), 현재 상태와 우선순위는 [doc/requirements-analysis.md](./doc/requirements-analysis.md), 설계는 [doc/architecture.md](./doc/architecture.md)·[doc/database-design.md](./doc/database-design.md), 공식 자료는 [doc/reference.md](./doc/reference.md), 변경·검증 이력은 [doc/work-log.md](./doc/work-log.md)에서 관리한다. 작업 규칙은 [AGENTS.md](./AGENTS.md)를 따른다.
