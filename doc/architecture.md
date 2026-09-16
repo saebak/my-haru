@@ -2,7 +2,7 @@
 
 ## 1. 목적과 범위
 
-이 문서는 `requirements.md` 0.4.0과 `requirements-analysis.md`의 확정 결정을 구현 구조로 구체화한다. Phase 1 로컬 MVP와 후속 단계가 결합되는 경계를 정의한다.
+이 문서는 `requirements.md` 0.5.0과 `requirements-analysis.md`의 확정 결정을 구현 구조로 구체화한다. Phase 1 로컬 MVP와 후속 단계가 결합되는 경계를 정의한다.
 
 현재 Phase 1 구현 범위는 React 클라이언트와 IndexedDB 로컬 저장소뿐이다. Supabase 연결 코드는 보류 자산으로 유지하지만 닉네임, 인증, 서버 백업, 재설치 복원, 다중 기기 동기화는 Phase 2에서 인증 방식 확정 후 활성화한다.
 
@@ -77,14 +77,15 @@ src/
 | 동기화 커서 | Phase 2 IndexedDB `sync_meta` | 서버 변경 pull 위치 |
 | 인증 세션 | Phase 2 인증 어댑터 | 인증 방식 확정 후 구현 |
 | 회원별 내구 데이터 | Phase 2 Supabase Postgres | 백업·재설치 복원·동기화 기준 |
-| 폼·모달·필터 | React 로컬 상태 | 영속화가 필요 없는 화면 상태 |
+| 날짜 선택·날짜 페이지·폼·모달 | React 로컬 상태 | 영속화가 필요 없는 화면 상태 |
+| 날짜별 수동 순서·온보딩 완료 | IndexedDB `meta` | 재실행 뒤에도 유지하는 앱 설정 |
 
 ## 6. 주요 실행 흐름
 
 ### 6.1 앱 시작
 
 1. IndexedDB 스키마를 열고 필요한 마이그레이션을 실행한다.
-2. 로컬 오늘 목록을 표시한다.
+2. 로컬 데이터를 읽어 오늘이 가운데인 날짜 페이지와 선택 날짜 목록을 표시한다.
 3. Phase 1에서는 네트워크 또는 로그인 상태를 확인하지 않는다.
 4. Phase 2에서만 유효한 인증 세션이 있을 때 백그라운드 동기화를 시작한다.
 
@@ -108,9 +109,9 @@ src/
 - 주간 계산은 월요일부터 시작한다.
 - occurrence는 무기한 미리 생성하지 않고 조회 범위에서 계산한다.
 - 이 날짜만 수정은 해당 날짜 `TodoRecord`의 override를 갱신한다.
-- 이 날짜부터 이후 수정은 대상 Todo를 전날 종료하거나 시작일이 같으면 소프트 삭제하고, 이후 활성 revision을 소프트 삭제한 뒤 같은 `seriesId`에서 `maxRevision + 1`의 새 Todo row를 생성한다.
+- 이 날짜부터 이후 수정은 대상 Todo를 전날 종료하거나 시작일이 같으면 소프트 삭제하고, 이후 활성 revision을 소프트 삭제한 뒤 같은 `seriesId`에서 `maxRevision + 1`의 새 Todo row를 생성한다. 전체 반복 수정은 series의 첫 occurrence를 대상으로 같은 흐름을 실행한다.
 - 기존 Todo row에서는 `repeatEndDate`와 변경 추적 시각만 갱신한다. TodoRecord는 `seriesId + targetDate`로 조회하므로 revision 분할 시 변경하지 않는다.
-- 새 규칙이 더 이상 생성하지 않는 대상일 이후 TodoRecord만 분할 transaction에서 소프트 삭제하며 대상일 이전 기록은 변경하지 않는다. 이후 삭제에서는 대상일 이후 활성 revision과 TodoRecord를 함께 소프트 삭제한다.
+- 새 규칙이 더 이상 생성하지 않는 대상일 이후 TodoRecord만 분할 transaction에서 소프트 삭제하며 대상일 이전 기록은 변경하지 않는다. 이후 삭제에서는 대상일 이후 활성 revision과 TodoRecord를 함께 소프트 삭제하고, 전체 반복 삭제는 series의 첫 occurrence부터 같은 흐름을 실행한다.
 - `dueDate + dueTime` 문자열로 정렬하고 기기 시간대 변경으로 기존 순서를 재해석하지 않는다.
 - 통계 계산과 DST 실제 시각 변환은 Phase 3으로 미룬다.
 

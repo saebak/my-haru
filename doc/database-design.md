@@ -151,7 +151,7 @@ DB 이름은 `my-daily-todo`, 현재 version은 `2`다. 초기 React 목업이 �
 | --- | --- | --- |
 | `todos` | `id` | `type`, `seriesId`, `[seriesId,revision]` unique, `dueDate`, `[dueDate,dueTime]`, `status`, `priority`, `createdAt`, `deletedAt` |
 | `todoRecords` | `id` | `[seriesId,targetDate]` unique, `seriesId`, `targetDate`, `status`, `deletedAt` |
-| `meta` | `key` | 없음 |
+| `meta` | `key` | 없음. `schemaVersion`, `onboardingCompleted`, 날짜별 `manualOrders` 저장 |
 
 Phase 1에는 `outbox`, `conflicts`, `syncMeta`, `reminders`를 만들지 않는다.
 
@@ -187,7 +187,7 @@ Phase 1에는 `outbox`, `conflicts`, `syncMeta`, `reminders`를 만들지 않는
 - 활성 record 중 존재하지 않는 series 또는 적용 revision에서 occurrence가 아닌 targetDate를 가진 고아 TodoRecord
 - 날짜·시각·UUID 형식
 
-검증이 끝난 뒤 `todos`, `todoRecords`, `meta`를 포함한 단일 readwrite transaction에서 모든 store를 clear하고 데이터를 put한다. clear 또는 put 하나라도 실패하면 transaction 전체를 abort해 기존 데이터를 유지한다. 미래 schemaVersion은 가져오지 않으며 과거 버전은 지원 migration을 거친 후 검증한다.
+검증이 끝난 뒤 `todos`, `todoRecords`, `meta`를 포함한 단일 readwrite transaction에서 `todos`와 `todoRecords`를 clear하고 데이터를 put하며 `schemaVersion`을 갱신한다. `onboardingCompleted`와 `manualOrders` 같은 기기 설정은 유지한다. clear 또는 put 하나라도 실패하면 transaction 전체를 abort해 기존 데이터를 유지한다. 미래 schemaVersion은 가져오지 않으며 과거 버전은 지원 migration을 거친 후 검증한다.
 
 통합 테스트는 clear 직후, 각 store put 중간, transaction commit 직전 실패를 주입하고 기존 데이터가 동일하게 남는지 검증한다.
 

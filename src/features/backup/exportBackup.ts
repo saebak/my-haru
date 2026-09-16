@@ -11,7 +11,13 @@ export function encodeUtf8Base64(value: string) {
 }
 
 export async function saveBackupText(text: string, fileName: string) {
-  if (File.saveBase64.isSupported()) {
+  let supportsNativeSave = false;
+  try {
+    supportsNativeSave = File.saveBase64.isSupported();
+  } catch {
+    supportsNativeSave = false;
+  }
+  if (supportsNativeSave) {
     await File.saveBase64({
       data: encodeUtf8Base64(text),
       fileName,

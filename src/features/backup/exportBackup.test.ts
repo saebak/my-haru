@@ -10,7 +10,7 @@ vi.mock('@apps-in-toss/web-framework', () => ({ File: { saveBase64 } }));
 import { encodeUtf8Base64, saveBackupText } from './exportBackup';
 
 describe('backup file export', () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => { vi.clearAllMocks(); vi.unstubAllGlobals(); });
 
   it('encodes Korean JSON as UTF-8 Base64', () => {
     const text = '{"title":"할 일 ✅"}';
@@ -25,5 +25,20 @@ describe('backup file export', () => {
       fileName: 'backup.json',
       mimeType: 'application/json',
     });
+  });
+
+  it('falls back to a browser download when the SDK support check is unavailable', async () => {
+    saveBase64.isSupported.mockImplementation(() => { throw new Error('No Apps in Toss environment'); });
+    const createObjectURL = vi.fn().mockReturnValue('blob:backup');
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal('URL', { createObjectURL, revokeObjectURL });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+
+    await saveBackupText('{"ok":true}', 'backup.json');
+
+    expect(createObjectURL).toHaveBeenCalledOnce();
+    expect(click).toHaveBeenCalledOnce();
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:backup');
   });
 });

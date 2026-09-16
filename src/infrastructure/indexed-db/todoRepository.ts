@@ -1,4 +1,4 @@
-import { addDays } from '../../domain/todos/date';
+import { addDays, parseDate } from '../../domain/todos/date';
 import { occursOn, TodoError, validateTodo } from '../../domain/todos/todoDomain';
 import type {
   CreateTodoInput, DeleteReceipt, DisplayTodo, RecurringPatch, RepositoryDependencies,
@@ -10,6 +10,8 @@ export const DATABASE_VERSION = 2;
 const TODO_STORE = 'todos';
 const RECORD_STORE = 'todoRecords';
 const META_STORE = 'meta';
+const ONBOARDING_META_KEY = 'onboardingCompleted';
+const MANUAL_ORDERS_META_KEY = 'manualOrders';
 
 const defaults: RepositoryDependencies = {
   now: () => new Date(),
@@ -159,6 +161,61 @@ export async function loadSnapshot(): Promise<{ todos: TodoData[]; records: Todo
     const records = await requestResult(transaction.objectStore(RECORD_STORE).getAll()) as TodoRecordData[];
     await transactionDone(transaction);
     return { todos, records };
+  } catch (error) {
+    throw storageError(error);
+  }
+}
+
+export async function hasCompletedOnboarding(): Promise<boolean> {
+  try {
+    const database = await openTodoDatabase();
+    const transaction = database.transaction(META_STORE, 'readonly');
+    const entry = await requestResult(transaction.objectStore(META_STORE).get(ONBOARDING_META_KEY)) as { value?: unknown } | undefined;
+    await transactionDone(transaction);
+    return entry?.value === true;
+  } catch (error) {
+    throw storageError(error);
+  }
+}
+
+export async function completeOnboarding(): Promise<void> {
+  try {
+    const database = await openTodoDatabase();
+    const transaction = database.transaction(META_STORE, 'readwrite');
+    transaction.objectStore(META_STORE).put({ key: ONBOARDING_META_KEY, value: true });
+    await transactionDone(transaction);
+  } catch (error) {
+    throw storageError(error);
+  }
+}
+
+export async function loadManualOrders(): Promise<Record<string, string[]>> {
+  try {
+    const database = await openTodoDatabase();
+    const transaction = database.transaction(META_STORE, 'readonly');
+    const entry = await requestResult(transaction.objectStore(META_STORE).get(MANUAL_ORDERS_META_KEY)) as { value?: unknown } | undefined;
+    await transactionDone(transaction);
+    if (!entry?.value || typeof entry.value !== 'object' || Array.isArray(entry.value)) return {};
+    return Object.fromEntries(Object.entries(entry.value).filter(([date, order]) =>
+      /^\d{4}-\d{2}-\d{2}$/.test(date) && Array.isArray(order) && order.every((key) => typeof key === 'string'),
+    )) as Record<string, string[]>;
+  } catch (error) {
+    throw storageError(error);
+  }
+}
+
+export async function saveManualOrder(date: string, order: string[]): Promise<void> {
+  try {
+    parseDate(date);
+    const database = await openTodoDatabase();
+    const transaction = database.transaction(META_STORE, 'readwrite');
+    const store = transaction.objectStore(META_STORE);
+    const entry = await requestResult(store.get(MANUAL_ORDERS_META_KEY)) as { value?: unknown } | undefined;
+    const current = entry?.value && typeof entry.value === 'object' && !Array.isArray(entry.value)
+      ? entry.value as Record<string, unknown>
+      : {};
+    store.put({ key: MANUAL_ORDERS_META_KEY, value: { ...current, [date]: [...new Set(order)] } });
+    await transactionDone(transaction);
   } catch (error) {
     throw storageError(error);
   }

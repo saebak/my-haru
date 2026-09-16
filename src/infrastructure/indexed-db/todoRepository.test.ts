@@ -4,7 +4,7 @@ import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { materializeItems } from '../../domain/todos/todoDomain';
 import type { RepositoryDependencies } from '../../domain/todos/types';
 import {
-  closeTodoDatabase, createTodo, DATABASE_NAME, deleteOccurrence, loadSnapshot, openTodoDatabase,
+  closeTodoDatabase, completeOnboarding, createTodo, DATABASE_NAME, deleteOccurrence, hasCompletedOnboarding, loadManualOrders, loadSnapshot, openTodoDatabase, saveManualOrder,
   setOneTimeStatus, setRecurringStatus, softDeleteCompleted, undoDelete, updateRecurring,
 } from './todoRepository';
 
@@ -31,6 +31,23 @@ beforeEach(async () => {
 afterAll(() => closeTodoDatabase());
 
 describe('IndexedDB todo repository', () => {
+  it('stores onboarding completion separately from todo data', async () => {
+    expect(await hasCompletedOnboarding()).toBe(false);
+    await completeOnboarding();
+    expect(await hasCompletedOnboarding()).toBe(true);
+    expect(await loadSnapshot()).toEqual({ todos: [], records: [] });
+  });
+
+  it('persists unique manual orders by calendar date', async () => {
+    expect(await loadManualOrders()).toEqual({});
+    await saveManualOrder('2026-09-11', ['todo-b', 'todo-a', 'todo-b']);
+    await saveManualOrder('2026-09-12', ['todo-c']);
+    expect(await loadManualOrders()).toEqual({
+      '2026-09-11': ['todo-b', 'todo-a'],
+      '2026-09-12': ['todo-c'],
+    });
+  });
+
   it('rejects invalid input before writing anything', async () => {
     await expect(createTodo({ type: 'one_time', title: '   ', memo: '', emoji: '✅', priority: 'normal', dueDate: '2026-09-11', dueTime: null }, deps)).rejects.toMatchObject({ code: 'VALIDATION' });
     expect((await loadSnapshot()).todos).toEqual([]);
