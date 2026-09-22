@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import App from './App';
 import { addDays } from './domain/todos/date';
+import { initializeCloudSync, syncIfConnected } from './infrastructure/sync/cloudSync';
 import { completeOnboarding, createTodo, hasCompletedOnboarding, loadSnapshot, setOneTimeStatus } from './infrastructure/indexed-db/todoRepository';
 
 vi.mock('./infrastructure/indexed-db/todoRepository', () => ({
@@ -16,14 +17,31 @@ vi.mock('./infrastructure/indexed-db/todoRepository', () => ({
   deleteOccurrence: vi.fn(), undoDelete: vi.fn(), clearAllData: vi.fn(), replaceSnapshot: vi.fn(),
 }));
 
+vi.mock('./infrastructure/sync/cloudSync', () => ({
+  initializeCloudSync: vi.fn().mockResolvedValue('local_only'),
+  syncIfConnected: vi.fn().mockResolvedValue(false),
+}));
+
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(loadSnapshot).mockResolvedValue({ todos: [], records: [] });
   vi.mocked(hasCompletedOnboarding).mockResolvedValue(true);
+  vi.mocked(initializeCloudSync).mockResolvedValue('local_only');
+  vi.mocked(syncIfConnected).mockResolvedValue(false);
 });
 afterEach(() => cleanup());
 
 describe('App', () => {
+  it('shows local data before cloud initialization finishes', async () => {
+    vi.mocked(initializeCloudSync).mockImplementationOnce(() => new Promise(() => undefined));
+
+    render(<App />);
+
+    expect(await screen.findByText('이날의 항목이 없어요')).toBeInTheDocument();
+    expect(screen.queryByText('목록을 불러오는 중이에요')).not.toBeInTheDocument();
+    expect(initializeCloudSync).toHaveBeenCalledTimes(1);
+  });
+
   it('shows the onboarding guide on first launch and remembers completion', async () => {
     vi.mocked(hasCompletedOnboarding).mockResolvedValueOnce(false);
     render(<App />);

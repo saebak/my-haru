@@ -637,15 +637,24 @@ export default function App() {
 
   async function refresh() { setSnapshot(await loadSnapshot()); }
   useEffect(() => {
+    let active = true;
     void refresh()
-      .then(async () => {
-        const status = await initializeCloudSync();
-        setCloudStatus(status);
-        if (status === 'connected') await refresh();
+      .catch((reason) => {
+        if (active) setError(reason instanceof Error ? reason.message : '목록을 불러오지 못했어요.');
       })
-      .catch((reason) => setError(reason instanceof Error ? reason.message : '목록을 불러오지 못했어요.'))
-      .finally(() => setReady(true));
+      .finally(() => { if (active) setReady(true); });
+    return () => { active = false; };
   }, []);
+  useEffect(() => {
+    if (!ready) return;
+    let active = true;
+    void initializeCloudSync().then(async (status) => {
+      if (!active) return;
+      setCloudStatus(status);
+      if (status === 'connected') await refresh();
+    }).catch(() => { if (active) setCloudStatus('unavailable'); });
+    return () => { active = false; };
+  }, [ready]);
   useEffect(() => { void hasCompletedOnboarding().then((completed) => { if (!completed) setOnboardingOpen(true); }).catch(() => undefined); }, []);
   useEffect(() => { void loadManualOrders().then(setOrders).catch(() => undefined); }, []);
   useEffect(() => () => { if (undoTimer.current) window.clearTimeout(undoTimer.current); if (noticeTimer.current) window.clearTimeout(noticeTimer.current); }, []);
