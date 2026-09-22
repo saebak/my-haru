@@ -4,7 +4,7 @@ import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { materializeItems } from '../../domain/todos/todoDomain';
 import type { RepositoryDependencies } from '../../domain/todos/types';
 import {
-  closeTodoDatabase, completeOnboarding, createTodo, DATABASE_NAME, deleteOccurrence, generateUuid, hasCompletedOnboarding, loadCloudSession, loadManualOrders, loadSnapshot, openTodoDatabase, saveCloudSession, saveManualOrder,
+  closeTodoDatabase, completeOnboarding, convertOneTimeToRecurring, createTodo, DATABASE_NAME, deleteOccurrence, generateUuid, hasCompletedOnboarding, loadCloudSession, loadManualOrders, loadSnapshot, openTodoDatabase, saveCloudSession, saveManualOrder,
   setOneTimeStatus, setRecurringStatus, softDeleteCompleted, undoDelete, updateRecurring,
 } from './todoRepository';
 
@@ -86,6 +86,20 @@ describe('IndexedDB todo repository', () => {
     expect(repeatedTodo).toMatchObject({ type: 'recurring', category: 'todo', emoji: '💡' });
     expect(habit).toMatchObject({ type: 'recurring', category: 'habit', emoji: '💡' });
     expect(materializeItems([repeatedTodo, habit], [], '2026-09-11').map((item) => item.category)).toEqual(['todo', 'habit']);
+  });
+
+  it('atomically converts a one-time todo to a recurring todo', async () => {
+    const todo = await MamaCreate();
+    const converted = await convertOneTimeToRecurring(todo.id, {
+      type: 'recurring', category: 'todo', title: '매일 테스트', memo: '', emoji: '💡', priority: 'normal',
+      dueTime: null, repeatStartDate: '2026-09-11', repeatFrequency: 'daily', repeatInterval: 1,
+      repeatWeekdays: [], repeatEndDate: null,
+    }, deps);
+    expect(converted).toMatchObject({
+      id: todo.id, type: 'recurring', category: 'todo', seriesId: expect.any(String), revision: 1,
+      status: null, dueDate: null, completedAt: null, repeatStartDate: '2026-09-11',
+    });
+    expect((await loadSnapshot()).todos).toEqual([converted]);
   });
 
   it('soft deletes and restores the exact previous value with a receipt', async () => {

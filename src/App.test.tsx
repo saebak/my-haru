@@ -6,14 +6,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
 import { addDays } from './domain/todos/date';
 import { initializeCloudSync, syncIfConnected } from './infrastructure/sync/cloudSync';
-import { completeOnboarding, createTodo, hasCompletedOnboarding, loadSnapshot, setOneTimeStatus } from './infrastructure/indexed-db/todoRepository';
+import { completeOnboarding, convertOneTimeToRecurring, createTodo, hasCompletedOnboarding, loadSnapshot, setOneTimeStatus } from './infrastructure/indexed-db/todoRepository';
 
 vi.mock('./infrastructure/indexed-db/todoRepository', () => ({
   loadSnapshot: vi.fn().mockResolvedValue({ todos: [], records: [] }),
   hasCompletedOnboarding: vi.fn().mockResolvedValue(true), completeOnboarding: vi.fn().mockResolvedValue(undefined),
   loadManualOrders: vi.fn().mockResolvedValue({}), saveManualOrder: vi.fn().mockResolvedValue(undefined),
   createTodo: vi.fn().mockResolvedValue({}),
-  updateOneTime: vi.fn(), updateRecurring: vi.fn(), setOneTimeStatus: vi.fn(), setRecurringStatus: vi.fn(),
+  convertOneTimeToRecurring: vi.fn(), updateOneTime: vi.fn(), updateRecurring: vi.fn(), setOneTimeStatus: vi.fn(), setRecurringStatus: vi.fn(),
   deleteOccurrence: vi.fn(), undoDelete: vi.fn(), clearAllData: vi.fn(), replaceSnapshot: vi.fn(),
 }));
 
@@ -229,6 +229,7 @@ describe('App', () => {
     expect(await screen.findByText('디자인 시안 피드백 보내기')).toBeInTheDocument();
     expect(screen.getAllByText('TODO')).toHaveLength(3);
     expect(container.querySelector('.priority-mark.high')).toHaveTextContent('중요');
+    expect(screen.queryByText('시간 없음')).not.toBeInTheDocument();
     expect(screen.getByText('✓ 완료됨')).toBeInTheDocument();
     expect(screen.getByLabelText('완료된 항목, 완료됨')).toHaveClass('is-done');
     expect(container.querySelector('.swipe-item > .item-card .drag-handle')).toBeInTheDocument();
@@ -294,6 +295,30 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: '할 일 추가' }));
     await waitFor(() => expect(createTodo).toHaveBeenCalledWith(expect.objectContaining({
       type: 'recurring', category: 'todo', repeatFrequency: 'interval_days', repeatInterval: 3, repeatWeekdays: [],
+    })));
+  });
+
+  it('converts an existing one-time todo when repeat is enabled', async () => {
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+    vi.mocked(loadSnapshot).mockResolvedValue({
+      todos: [{
+        id: 'todo-to-repeat', type: 'one_time', category: 'todo', seriesId: null, revision: null,
+        title: '주간 보고', memo: '', emoji: '💡', status: 'pending', priority: 'normal', dueDate: today,
+        dueTime: null, completedAt: null, repeatFrequency: null, repeatInterval: null, repeatWeekdays: [],
+        repeatStartDate: null, repeatEndDate: null, timezone: null, createdAt: '2026-09-22T00:00:00.000Z',
+        updatedAt: '2026-09-22T00:00:00.000Z', deletedAt: null,
+      }],
+      records: [],
+    });
+
+    render(<App />);
+    await screen.findByText('주간 보고');
+    fireEvent.click(screen.getByRole('button', { name: '수정', hidden: true }));
+    fireEvent.click(screen.getByRole('checkbox', { name: /반복/ }));
+    fireEvent.click(screen.getByRole('button', { name: '할 일 수정' }));
+
+    await waitFor(() => expect(convertOneTimeToRecurring).toHaveBeenCalledWith('todo-to-repeat', expect.objectContaining({
+      type: 'recurring', category: 'todo', repeatStartDate: today, repeatFrequency: 'daily',
     })));
   });
 

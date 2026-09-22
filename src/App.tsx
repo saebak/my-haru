@@ -51,6 +51,7 @@ import { initializeCloudSync, syncIfConnected, type CloudSyncStatus } from './in
 import {
   clearAllData,
   completeOnboarding,
+  convertOneTimeToRecurring,
   createTodo,
   deleteOccurrence,
   hasCompletedOnboarding,
@@ -248,7 +249,7 @@ function TodoForm({
         repeatEndDate: String(data.get('repeatUntil') ?? '') || null,
       };
       await onSubmit(
-        editing ? patch : { type: 'recurring', ...patch, repeatStartDate: isHabit ? selectedDate : String(data.get('date') ?? selectedDate) },
+        editing?.type === 'recurring' ? patch : { type: 'recurring', ...patch, repeatStartDate: isHabit ? selectedDate : String(data.get('date') ?? selectedDate) },
         scope,
         type,
       );
@@ -287,7 +288,7 @@ function TodoForm({
         </fieldset>
       </div>
       {isHabit && <input type="hidden" name="priority" value={editing?.priority ?? 'normal'} />}
-      <label className="repeat-toggle"><span><strong>반복</strong><small>매일, 요일별 또는 며칠마다 반복할 수 있어요</small></span><input name="repeat" type="checkbox" checked={repeats} disabled={isHabit} onChange={(event) => setRepeating(event.target.checked)} /><i aria-hidden="true" /></label>
+      <label className="repeat-toggle"><span><strong>반복</strong><small>매일, 요일별 또는 며칠마다 반복할 수 있어요</small></span><input name="repeat" type="checkbox" checked={repeats} disabled={isHabit || editing?.type === 'recurring'} onChange={(event) => setRepeating(event.target.checked)} /><i aria-hidden="true" /></label>
       <div className="repeat-options" hidden={!repeats}>
         <fieldset className="repeat-frequency-picker">
           <legend className="field-label">반복 방식</legend>
@@ -389,7 +390,7 @@ function TaskCard({
     </div>
     <article className={`item-card ${done ? 'is-done' : ''} ${skipped ? 'is-skipped' : ''}`} aria-label={`${item.title}${done ? ', 완료됨' : ''}`} onPointerDown={startSwipe} onPointerMove={moveSwipe} onPointerUp={endSwipe} onPointerCancel={endSwipe}>
       <div className="item-icon" aria-hidden="true">{item.emoji || '💡'}</div>
-      <div className="item-body"><div className="item-title-row"><strong className="item-title">{item.title}</strong><span className={`item-type-tag ${routine ? 'routine' : 'todo'}`}>{routine ? 'ROUTINE' : 'TODO'}</span></div>{item.memo && <p className="item-memo">{item.memo}</p>}<div className="item-meta">{routine ? <><span className="streak-badge">🔥 {streakFor(snapshot, item)}일 연속</span>{skipped && <span className="status-label">건너뜀</span>}</> : <><span className={`priority-mark ${item.priority}`}>{PRIORITY_LABEL[item.priority]}</span><span>{item.dueTime || '시간 없음'}</span></>}{done && <span className="completion-badge">✓ 완료됨</span>}</div></div>
+      <div className="item-body"><div className="item-title-row"><strong className="item-title">{item.title}</strong><span className={`item-type-tag ${routine ? 'routine' : 'todo'}`}>{routine ? 'ROUTINE' : 'TODO'}</span></div>{item.memo && <p className="item-memo">{item.memo}</p>}<div className="item-meta">{routine ? <><span className="streak-badge">🔥 {streakFor(snapshot, item)}일 연속</span>{skipped && <span className="status-label">건너뜀</span>}</> : <><span className={`priority-mark ${item.priority}`}>{PRIORITY_LABEL[item.priority]}</span>{item.dueTime && <span>{item.dueTime}</span>}</>}{done && <span className="completion-badge">✓ 완료됨</span>}</div></div>
       <button className={`item-check ${done ? 'is-done' : ''}`} type="button" data-action="toggle" disabled={busy} onClick={onToggle} aria-label={`${item.title} ${done ? '완료 취소' : '완료'}`}>✓</button>
       <button ref={setActivatorNodeRef} {...dragAttributes} {...dragListeners} className="drag-handle" type="button" data-action="drag" aria-label={`${item.title} 순서 변경`}>⠿</button>
     </article>
@@ -407,7 +408,7 @@ function DraggedTaskCard({ item, snapshot }: { item: DisplayTodo; snapshot: Snap
   const routine = itemType(item) === 'habit';
   return <article className="item-card drag-overlay" aria-hidden="true">
     <div className="item-icon">{item.emoji || '💡'}</div>
-    <div className="item-body"><div className="item-title-row"><strong className="item-title">{item.title}</strong><span className={`item-type-tag ${routine ? 'routine' : 'todo'}`}>{routine ? 'ROUTINE' : 'TODO'}</span></div><div className="item-meta">{routine ? <span className="streak-badge">🔥 {streakFor(snapshot, item)}일 연속</span> : <><span className={`priority-mark ${item.priority}`}>{PRIORITY_LABEL[item.priority]}</span><span>{item.dueTime || '시간 없음'}</span></>}</div></div>
+    <div className="item-body"><div className="item-title-row"><strong className="item-title">{item.title}</strong><span className={`item-type-tag ${routine ? 'routine' : 'todo'}`}>{routine ? 'ROUTINE' : 'TODO'}</span></div><div className="item-meta">{routine ? <span className="streak-badge">🔥 {streakFor(snapshot, item)}일 연속</span> : <><span className={`priority-mark ${item.priority}`}>{PRIORITY_LABEL[item.priority]}</span>{item.dueTime && <span>{item.dueTime}</span>}</>}</div></div>
     <span className="drag-overlay-handle" aria-hidden="true">⠿</span>
   </article>;
 }
@@ -417,7 +418,9 @@ function agendaDetail(item: DisplayTodo, snapshot: Snapshot) {
     const state = item.status === 'skipped' ? ' · 건너뜀' : item.status === 'completed' ? ' · 완료' : '';
     return `${streakFor(snapshot, item)}일 연속${state}`;
   }
-  return `${item.dueTime || '시간 없음'} · ${PRIORITY_LABEL[item.priority]}${item.status === 'completed' ? ' · 완료' : ''}`;
+  return [item.dueTime, PRIORITY_LABEL[item.priority], item.status === 'completed' ? '완료' : null]
+    .filter((value): value is string => Boolean(value))
+    .join(' · ');
 }
 
 function calendarCompletion(items: DisplayTodo[]) {
@@ -713,7 +716,10 @@ export default function App() {
         const created = input as CreateTodoInput;
         await createTodo(created);
         if (created.type === 'one_time') { setSelectedDate(created.dueDate); }
-      } else if (editing.type === 'one_time') await updateOneTime(editing.todoId, input as TodoContentPatch);
+      } else if (editing.type === 'one_time') {
+        if ('type' in input && input.type === 'recurring') await convertOneTimeToRecurring(editing.todoId, input);
+        else await updateOneTime(editing.todoId, input as TodoContentPatch);
+      }
       else await updateRecurring(editing.seriesId!, scope === 'all' ? firstSeriesOccurrence(editing) : editing.targetDate, scope === 'date' ? 'date' : 'future', input as RecurringPatch);
       showNotice(editing ? '항목을 수정했어요.' : `${type === 'habit' ? '습관' : '할 일'}을 추가했어요.`);
     }, true);

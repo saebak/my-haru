@@ -101,6 +101,7 @@ openTodoDatabase(): Promise<IDBDatabase>;
 loadSnapshot(): Promise<{ todos: TodoData[]; records: TodoRecordData[] }>;
 createTodo(input: CreateTodoInput, deps?: RepositoryDependencies): Promise<TodoData>;
 updateOneTime(id: string, patch: TodoContentPatch, deps?: RepositoryDependencies): Promise<TodoData>;
+convertOneTimeToRecurring(id: string, input: Extract<CreateTodoInput, { type: 'recurring' }>, deps?: RepositoryDependencies): Promise<TodoData>;
 setOneTimeStatus(id: string, status: TodoStatus, deps?: RepositoryDependencies): Promise<TodoData>;
 updateRecurring(seriesId: string, targetDate: CalendarDate, scope: 'date' | 'future', patch: RecurringPatch, deps?: RepositoryDependencies): Promise<void>;
 setRecurringStatus(seriesId: string, targetDate: CalendarDate, status: TodoRecordStatus, deps?: RepositoryDependencies): Promise<TodoRecordData>;
@@ -116,6 +117,7 @@ clearAllData(): Promise<void>;
 ## 6. 원자성과 삭제 실행 취소
 
 - 일반 Todo 생성·수정·상태 변경·소프트 삭제는 각각 단일 `todos` readwrite transaction이다.
+- 단일 할 일의 반복 켜기는 같은 ID를 유지한 채 `category=todo`, 새 `seriesId`, `revision=1`인 반복 Todo로 단일 transaction에서 전환한다.
 - 반복 날짜 기록 upsert는 단일 `todoRecords` readwrite transaction이며 `[seriesId,targetDate]`를 재사용한다.
 - 반복의 이후 수정·삭제는 대상 revision 종료, 이후 revision 정리, 새 revision 생성 또는 미래 record 정리를 `todos + todoRecords` 단일 transaction에서 수행한다.
 - 삭제는 변경 전 스냅샷을 담은 `DeleteReceipt`를 반환한다. 5초 안의 실행 취소는 receipt의 이전 Todo/TodoRecord를 같은 transaction에서 복원한다.

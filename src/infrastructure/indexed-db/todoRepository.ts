@@ -330,6 +330,48 @@ export async function updateOneTime(id: string, patch: TodoContentPatch, deps = 
   }
 }
 
+export async function convertOneTimeToRecurring(
+  id: string,
+  input: Extract<CreateTodoInput, { type: 'recurring' }>,
+  deps = defaults,
+): Promise<TodoData> {
+  try {
+    const database = await openTodoDatabase();
+    const transaction = database.transaction(TODO_STORE, 'readwrite');
+    const todo = await findTodo(transaction, id);
+    if (todo.type !== 'one_time') throw new TodoError('CONFLICT', '이미 반복 중인 항목이에요.', false);
+    const timestamp = deps.now().toISOString();
+    const converted: TodoData = {
+      ...todo,
+      type: 'recurring',
+      category: 'todo',
+      seriesId: deps.uuid(),
+      revision: 1,
+      title: input.title.trim(),
+      memo: input.memo.trim(),
+      emoji: input.emoji || '💡',
+      status: null,
+      priority: input.priority,
+      dueDate: null,
+      dueTime: input.dueTime || null,
+      completedAt: null,
+      repeatFrequency: input.repeatFrequency,
+      repeatInterval: input.repeatInterval,
+      repeatWeekdays: [...input.repeatWeekdays].sort((a, b) => a - b),
+      repeatStartDate: input.repeatStartDate,
+      repeatEndDate: input.repeatEndDate,
+      timezone: 'Asia/Seoul',
+      updatedAt: timestamp,
+    };
+    validateTodo(converted);
+    transaction.objectStore(TODO_STORE).put(converted);
+    await transactionDone(transaction);
+    return converted;
+  } catch (error) {
+    throw storageError(error);
+  }
+}
+
 export async function setOneTimeStatus(id: string, status: TodoStatus, deps = defaults): Promise<TodoData> {
   try {
     const database = await openTodoDatabase();
