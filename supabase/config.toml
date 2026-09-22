@@ -1,0 +1,4 @@
+project_id = "my-daily-todo"
+
+[functions.account-sync]
+verify_jwt = false

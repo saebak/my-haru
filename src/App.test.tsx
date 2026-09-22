@@ -133,15 +133,22 @@ describe('App', () => {
     expect(screen.getByRole('radio', { name: '습관' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /시간 선택/ })).toHaveTextContent('시간 없음');
     expect(screen.getByRole('checkbox', { name: /반복/ })).not.toBeChecked();
+    expect(screen.getByRole('button', { name: /눌러서 선택/ })).toHaveTextContent('💡');
     expect(screen.getByRole('radio', { name: '보통' })).toBeChecked();
     expect(screen.getByRole('radio', { name: '낮음' })).toBeInTheDocument();
     expect(screen.getByRole('radio', { name: '중요' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /눌러서 선택/ }));
     expect(within(screen.getByLabelText('이모지 선택')).getAllByRole('button')).toHaveLength(40);
+    fireEvent.click(screen.getByRole('radio', { name: '습관' }));
+    expect(screen.getByRole('checkbox', { name: /반복/ })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: /반복/ })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /눌러서 선택/ })).toHaveTextContent('💡');
+    fireEvent.click(screen.getByRole('radio', { name: '할 일' }));
+    expect(screen.getByRole('checkbox', { name: /반복/ })).not.toBeChecked();
     const title = screen.getByLabelText('무엇을 할까요?');
     fireEvent.change(title, { target: { value: '물 마시기' } });
     fireEvent.click(screen.getByRole('button', { name: '할 일 추가' }));
-    await waitFor(() => expect(createTodo).toHaveBeenCalledWith(expect.objectContaining({ dueTime: null, priority: 'normal', type: 'one_time' })));
+    await waitFor(() => expect(createTodo).toHaveBeenCalledWith(expect.objectContaining({ category: 'todo', dueTime: null, emoji: '💡', priority: 'normal', type: 'one_time' })));
   });
 
   it('keeps the entered title and disables duplicate submission while saving', async () => {
@@ -217,6 +224,47 @@ describe('App', () => {
     });
   });
 
+  it('shows only edit and delete actions for a recurring habit', async () => {
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+    vi.mocked(loadSnapshot).mockResolvedValue({
+      todos: [{
+        id: 'habit-1', type: 'recurring', category: 'habit', seriesId: 'series-1', revision: 1, title: '물 마시기', memo: '', emoji: '💧',
+        status: null, priority: 'normal', dueDate: null, dueTime: null, completedAt: null,
+        repeatFrequency: 'daily', repeatInterval: 1, repeatWeekdays: [], repeatStartDate: today,
+        repeatEndDate: null, timezone: 'Asia/Seoul', createdAt: '2026-09-17T00:00:00.000Z',
+        updatedAt: '2026-09-17T00:00:00.000Z', deletedAt: null,
+      }],
+      records: [],
+    });
+
+    render(<App />);
+    await screen.findByText('물 마시기');
+
+    expect(screen.getByText('ROUTINE')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '수정', hidden: true })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '삭제', hidden: true })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /건너뜀/, hidden: true })).not.toBeInTheDocument();
+  });
+
+  it('renders a repeated todo as a todo even without a time', async () => {
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+    vi.mocked(loadSnapshot).mockResolvedValue({
+      todos: [{
+        id: 'repeated-todo', type: 'recurring', category: 'todo', seriesId: 'todo-series', revision: 1,
+        title: '매주 정산 확인', memo: '', emoji: '💡', status: null, priority: 'normal', dueDate: null,
+        dueTime: null, completedAt: null, repeatFrequency: 'daily', repeatInterval: 1, repeatWeekdays: [],
+        repeatStartDate: today, repeatEndDate: null, timezone: 'Asia/Seoul', createdAt: '2026-09-17T00:00:00.000Z',
+        updatedAt: '2026-09-17T00:00:00.000Z', deletedAt: null,
+      }],
+      records: [],
+    });
+
+    render(<App />);
+    await screen.findByText('매주 정산 확인');
+    expect(screen.getByText('TODO')).toBeInTheDocument();
+    expect(screen.queryByText('ROUTINE')).not.toBeInTheDocument();
+  });
+
   it('creates a custom interval recurring item', async () => {
     render(<App />);
     await screen.findByText('이날의 항목이 없어요');
@@ -227,7 +275,7 @@ describe('App', () => {
     fireEvent.change(screen.getByRole('spinbutton', { name: /반복 간격/ }), { target: { value: '3' } });
     fireEvent.click(screen.getByRole('button', { name: '할 일 추가' }));
     await waitFor(() => expect(createTodo).toHaveBeenCalledWith(expect.objectContaining({
-      type: 'recurring', repeatFrequency: 'interval_days', repeatInterval: 3, repeatWeekdays: [],
+      type: 'recurring', category: 'todo', repeatFrequency: 'interval_days', repeatInterval: 3, repeatWeekdays: [],
     })));
   });
 
@@ -249,6 +297,9 @@ describe('App', () => {
     const todayCell = screen.getByRole('button', { name: /2개 항목, 완료 50%/ });
     expect(todayCell).toHaveClass('completion-level-2');
     expect(todayCell).toHaveAttribute('data-completion', '50');
+    expect(todayCell.querySelector('[data-growth-level="2"]')).toBeInTheDocument();
+    expect(screen.getByLabelText('달성률 꾸밈 기준')).toHaveTextContent('새싹 25%');
+    expect(screen.getByLabelText('달성률 꾸밈 기준')).toHaveTextContent('숲 100%');
     expect(screen.getByRole('button', { name: '이 날짜 일정 보기' })).toBeInTheDocument();
     const close = screen.getByRole('button', { name: '일정으로 돌아가기' });
     await waitFor(() => expect(close).toHaveFocus());

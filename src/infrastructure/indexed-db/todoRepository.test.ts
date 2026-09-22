@@ -4,7 +4,7 @@ import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { materializeItems } from '../../domain/todos/todoDomain';
 import type { RepositoryDependencies } from '../../domain/todos/types';
 import {
-  closeTodoDatabase, completeOnboarding, createTodo, DATABASE_NAME, deleteOccurrence, hasCompletedOnboarding, loadManualOrders, loadSnapshot, openTodoDatabase, saveManualOrder,
+  closeTodoDatabase, completeOnboarding, createTodo, DATABASE_NAME, deleteOccurrence, generateUuid, hasCompletedOnboarding, loadCloudSession, loadManualOrders, loadSnapshot, openTodoDatabase, saveCloudSession, saveManualOrder,
   setOneTimeStatus, setRecurringStatus, softDeleteCompleted, undoDelete, updateRecurring,
 } from './todoRepository';
 
@@ -31,6 +31,23 @@ beforeEach(async () => {
 afterAll(() => closeTodoDatabase());
 
 describe('IndexedDB todo repository', () => {
+  it('stores only the opaque cloud session in metadata', async () => {
+    expect(await loadCloudSession()).toBeNull();
+    const session = { accountId: 'account-1', token: 'opaque-token', expiresAt: '2026-10-11T01:00:00.000Z' };
+    await saveCloudSession(session);
+    expect(await loadCloudSession()).toEqual(session);
+  });
+
+  it('generates an RFC 4122 UUID when randomUUID is unavailable on local HTTP', () => {
+    const source = {
+      getRandomValues: (array: Uint8Array) => {
+        array.set(Array.from({ length: 16 }, (_, index) => index));
+        return array;
+      },
+    } as unknown as Crypto;
+    expect(generateUuid(source)).toBe('00010203-0405-4607-8809-0a0b0c0d0e0f');
+  });
+
   it('stores onboarding completion separately from todo data', async () => {
     expect(await hasCompletedOnboarding()).toBe(false);
     await completeOnboarding();
@@ -61,6 +78,14 @@ describe('IndexedDB todo repository', () => {
     const restored = await setOneTimeStatus(todo.id, 'pending', deps);
     expect(restored.completedAt).toBeNull();
     expect((await loadSnapshot()).todos[0]).toEqual(restored);
+  });
+
+  it('stores category independently from recurrence and uses the lightbulb default', async () => {
+    const repeatedTodo = await createTodo({ type: 'recurring', category: 'todo', title: '정기 결제 확인', memo: '', emoji: '', priority: 'normal', dueTime: null, repeatStartDate: '2026-09-11', repeatFrequency: 'daily', repeatInterval: 1, repeatWeekdays: [], repeatEndDate: null }, deps);
+    const habit = await createTodo({ type: 'recurring', category: 'habit', title: '스트레칭', memo: '', emoji: '', priority: 'normal', dueTime: null, repeatStartDate: '2026-09-11', repeatFrequency: 'daily', repeatInterval: 1, repeatWeekdays: [], repeatEndDate: null }, deps);
+    expect(repeatedTodo).toMatchObject({ type: 'recurring', category: 'todo', emoji: '💡' });
+    expect(habit).toMatchObject({ type: 'recurring', category: 'habit', emoji: '💡' });
+    expect(materializeItems([repeatedTodo, habit], [], '2026-09-11').map((item) => item.category)).toEqual(['todo', 'habit']);
   });
 
   it('soft deletes and restores the exact previous value with a receipt', async () => {

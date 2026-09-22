@@ -1,5 +1,5 @@
 import { parseDate } from '../../domain/todos/date';
-import { occursOn, TodoError, validateTodo } from '../../domain/todos/todoDomain';
+import { occursOn, resolveTodoCategory, TodoError, validateTodo } from '../../domain/todos/todoDomain';
 import type { RepositoryDependencies, TodoData, TodoOverrides, TodoRecordData } from '../../domain/todos/types';
 import { DATABASE_VERSION, loadSnapshot, replaceSnapshot } from '../../infrastructure/indexed-db/todoRepository';
 
@@ -39,6 +39,7 @@ function readTodo(value: unknown): TodoData {
   const status = value.status;
   if (typeof value.id !== 'string' || !value.id || (value.type !== 'one_time' && value.type !== 'recurring')) invalid('백업의 할 일 식별자가 올바르지 않아요.');
   if (typeof value.title !== 'string' || typeof value.memo !== 'string' || typeof value.emoji !== 'string') invalid('백업의 할 일 내용 형식이 올바르지 않아요.');
+  if (value.category !== undefined && value.category !== 'todo' && value.category !== 'habit') invalid('백업의 항목 종류가 올바르지 않아요.');
   if (priority !== 'low' && priority !== 'normal' && priority !== 'high') invalid('백업의 우선순위가 올바르지 않아요.');
   if (status !== null && status !== 'pending' && status !== 'completed') invalid('백업의 완료 상태가 올바르지 않아요.');
   if (!isNullableString(value.seriesId) || !isNullableString(value.dueDate) || !isNullableString(value.dueTime) || !isNullableString(value.completedAt) || !isNullableString(value.repeatStartDate) || !isNullableString(value.repeatEndDate) || !isNullableString(value.deletedAt)) invalid('백업의 날짜 또는 연결 정보가 올바르지 않아요.');
@@ -48,7 +49,7 @@ function readTodo(value: unknown): TodoData {
   if (!Array.isArray(value.repeatWeekdays) || !value.repeatWeekdays.every(Number.isInteger)) invalid('백업의 반복 요일이 올바르지 않아요.');
   if (value.timezone !== null && value.timezone !== 'Asia/Seoul') invalid('지원하지 않는 시간대예요.');
   if (!isIsoInstant(value.createdAt) || !isIsoInstant(value.updatedAt) || (value.completedAt !== null && !isIsoInstant(value.completedAt)) || (value.deletedAt !== null && !isIsoInstant(value.deletedAt))) invalid('백업의 변경 시각이 올바르지 않아요.');
-  const todo = value as TodoData;
+  const todo = { ...(value as TodoData), category: resolveTodoCategory(value as TodoData) };
   try { validateTodo(todo); } catch (error) { if (error instanceof TodoError) throw error; invalid('백업의 할 일 데이터가 올바르지 않아요.'); }
   return todo;
 }

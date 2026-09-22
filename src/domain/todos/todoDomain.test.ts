@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { addDays, monthGrid } from './date';
-import { filterAndSortItems, materializeItems, occursOn } from './todoDomain';
+import { filterAndSortItems, materializeItems, occursOn, resolveTodoCategory } from './todoDomain';
 import type { DisplayTodo, TodoData } from './types';
 
 function recurring(overrides: Partial<TodoData> = {}): TodoData {
@@ -15,6 +15,17 @@ function recurring(overrides: Partial<TodoData> = {}): TodoData {
 }
 
 describe('recurrence domain', () => {
+  it('keeps repeated todos separate from habits', () => {
+    const repeatedTodo = recurring({ category: 'todo', dueTime: null, emoji: '💡' });
+    const habit = recurring({ id: 'habit-1', seriesId: 'habit-series', category: 'habit', dueTime: null, emoji: '💡' });
+    expect(materializeItems([repeatedTodo, habit], [], '2028-02-28').map((item) => item.category)).toEqual(['todo', 'habit']);
+  });
+
+  it('infers categories for records saved before category was added', () => {
+    expect(resolveTodoCategory(recurring({ emoji: '✓', dueTime: null }))).toBe('todo');
+    expect(resolveTodoCategory(recurring({ emoji: '🌱', dueTime: null }))).toBe('habit');
+  });
+
   it('handles leap day and month boundaries with calendar strings', () => {
     const todo = recurring({ repeatFrequency: 'interval_days', repeatInterval: 2 });
     expect(occursOn(todo, '2028-02-28')).toBe(true);
@@ -51,7 +62,7 @@ describe('recurrence domain', () => {
 
 describe('list filtering and sorting', () => {
   const base: DisplayTodo = {
-    key: 'a', todoId: 'a', type: 'one_time', seriesId: null, targetDate: '2026-09-11', title: 'A', memo: '', emoji: '✅',
+    key: 'a', todoId: 'a', type: 'one_time', category: 'todo', seriesId: null, targetDate: '2026-09-11', title: 'A', memo: '', emoji: '✅',
     priority: 'low', dueTime: null, status: 'pending', completedAt: null, createdAt: '2026-09-01T00:00:00.000Z', revision: null,
   };
   it('filters by status and priority and orders high priority first', () => {

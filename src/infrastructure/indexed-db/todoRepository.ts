@@ -1,5 +1,5 @@
 import { addDays, parseDate } from '../../domain/todos/date';
-import { occursOn, TodoError, validateTodo } from '../../domain/todos/todoDomain';
+import { occursOn, resolveTodoCategory, TodoError, validateTodo } from '../../domain/todos/todoDomain';
 import type {
   CreateTodoInput, DeleteReceipt, DisplayTodo, RecurringPatch, RepositoryDependencies,
   TodoContentPatch, TodoData, TodoOverrides, TodoRecordData, TodoRecordStatus, TodoStatus,
@@ -12,10 +12,26 @@ const RECORD_STORE = 'todoRecords';
 const META_STORE = 'meta';
 const ONBOARDING_META_KEY = 'onboardingCompleted';
 const MANUAL_ORDERS_META_KEY = 'manualOrders';
+const CLOUD_SESSION_META_KEY = 'cloudSession';
+
+export type CloudSession = {
+  accountId: string;
+  token: string;
+  expiresAt: string;
+};
+
+export function generateUuid(source: Crypto = globalThis.crypto): string {
+  if (typeof source.randomUUID === 'function') return source.randomUUID();
+  const bytes = source.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = [...bytes].map((value) => value.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
 
 const defaults: RepositoryDependencies = {
   now: () => new Date(),
-  uuid: () => crypto.randomUUID(),
+  uuid: () => generateUuid(),
 };
 
 let connection: Promise<IDBDatabase> | null = null;
@@ -40,12 +56,16 @@ function createIndex(store: IDBObjectStore, name: string, keyPath: string | stri
 }
 
 function normalizeLegacyTodo(value: Record<string, unknown>): TodoData {
-  if (value.type === 'one_time' || value.type === 'recurring') return value as TodoData;
+  if (value.type === 'one_time' || value.type === 'recurring') {
+    const todo = value as TodoData;
+    return { ...todo, category: resolveTodoCategory(todo) };
+  }
   const timestamp = typeof value.createdAt === 'string' ? value.createdAt : new Date(0).toISOString();
   if (typeof value.id !== 'string' || typeof value.title !== 'string') throw new Error('Invalid legacy todo');
   return {
     id: value.id,
     type: 'one_time',
+    category: 'todo',
     seriesId: null,
     revision: null,
     title: value.title.trim(),
@@ -160,7 +180,7 @@ export async function loadSnapshot(): Promise<{ todos: TodoData[]; records: Todo
     const todos = await requestResult(transaction.objectStore(TODO_STORE).getAll()) as TodoData[];
     const records = await requestResult(transaction.objectStore(RECORD_STORE).getAll()) as TodoRecordData[];
     await transactionDone(transaction);
-    return { todos, records };
+    return { todos: todos.map((todo) => ({ ...todo, category: resolveTodoCategory(todo) })), records };
   } catch (error) {
     throw storageError(error);
   }
@@ -183,6 +203,32 @@ export async function completeOnboarding(): Promise<void> {
     const database = await openTodoDatabase();
     const transaction = database.transaction(META_STORE, 'readwrite');
     transaction.objectStore(META_STORE).put({ key: ONBOARDING_META_KEY, value: true });
+    await transactionDone(transaction);
+  } catch (error) {
+    throw storageError(error);
+  }
+}
+
+export async function loadCloudSession(): Promise<CloudSession | null> {
+  try {
+    const database = await openTodoDatabase();
+    const transaction = database.transaction(META_STORE, 'readonly');
+    const entry = await requestResult(transaction.objectStore(META_STORE).get(CLOUD_SESSION_META_KEY)) as { value?: unknown } | undefined;
+    await transactionDone(transaction);
+    const value = entry?.value as Partial<CloudSession> | undefined;
+    if (!value || typeof value.accountId !== 'string' || typeof value.token !== 'string' || typeof value.expiresAt !== 'string') return null;
+    if (Number.isNaN(Date.parse(value.expiresAt))) return null;
+    return value as CloudSession;
+  } catch (error) {
+    throw storageError(error);
+  }
+}
+
+export async function saveCloudSession(session: CloudSession): Promise<void> {
+  try {
+    const database = await openTodoDatabase();
+    const transaction = database.transaction(META_STORE, 'readwrite');
+    transaction.objectStore(META_STORE).put({ key: CLOUD_SESSION_META_KEY, value: session });
     await transactionDone(transaction);
   } catch (error) {
     throw storageError(error);
@@ -224,7 +270,8 @@ export async function saveManualOrder(date: string, order: string[]): Promise<vo
 function makeTodo(input: CreateTodoInput, deps: RepositoryDependencies): TodoData {
   const timestamp = deps.now().toISOString();
   const base = {
-    id: deps.uuid(), title: input.title.trim(), memo: input.memo.trim(), emoji: input.emoji || '✅',
+    id: deps.uuid(), title: input.title.trim(), memo: input.memo.trim(), emoji: input.emoji || '💡',
+    category: input.category ?? (input.type === 'one_time' ? 'todo' : undefined),
     priority: input.priority, dueTime: input.dueTime || null, createdAt: timestamp, updatedAt: timestamp,
     deletedAt: null,
   };
@@ -236,7 +283,7 @@ function makeTodo(input: CreateTodoInput, deps: RepositoryDependencies): TodoDat
     };
   }
   return {
-    ...base, type: 'recurring', seriesId: deps.uuid(), revision: 1, status: null, dueDate: null,
+    ...base, category: base.category ?? (input.dueTime === null ? 'habit' : 'todo'), type: 'recurring', seriesId: deps.uuid(), revision: 1, status: null, dueDate: null,
     completedAt: null, repeatFrequency: input.repeatFrequency, repeatInterval: input.repeatInterval,
     repeatWeekdays: [...input.repeatWeekdays].sort((a, b) => a - b), repeatStartDate: input.repeatStartDate,
     repeatEndDate: input.repeatEndDate, timezone: 'Asia/Seoul',
@@ -271,6 +318,7 @@ export async function updateOneTime(id: string, patch: TodoContentPatch, deps = 
     if (todo.type !== 'one_time') throw new TodoError('CONFLICT', '반복 할 일에는 수정 범위가 필요해요.', false);
     const updated: TodoData = {
       ...todo, ...patch, title: patch.title.trim(), memo: patch.memo.trim(), dueTime: patch.dueTime || null,
+      category: patch.category ?? resolveTodoCategory(todo),
       updatedAt: deps.now().toISOString(),
     };
     validateTodo(updated);
@@ -348,7 +396,7 @@ export async function updateRecurring(
     const timestamp = deps.now().toISOString();
     if (scope === 'date') {
       const current = await findRecord(transaction, seriesId, targetDate);
-      const candidate = { ...active, title: patch.title.trim(), memo: patch.memo.trim(), priority: patch.priority, dueTime: patch.dueTime || null };
+      const candidate = { ...active, title: patch.title.trim(), memo: patch.memo.trim(), priority: patch.priority, dueTime: patch.dueTime || null, category: patch.category ?? resolveTodoCategory(active) };
       validateTodo(candidate);
       const record: TodoRecordData = {
         id: current?.id ?? deps.uuid(), seriesId, targetDate, status: current && !current.deletedAt ? current.status : 'pending',
@@ -367,6 +415,7 @@ export async function updateRecurring(
       }
       const next: TodoData = {
         ...active, ...patch, id: deps.uuid(), revision: maxRevision + 1, repeatStartDate: targetDate,
+        category: patch.category ?? resolveTodoCategory(active),
         repeatWeekdays: [...patch.repeatWeekdays].sort((a, b) => a - b), title: patch.title.trim(), memo: patch.memo.trim(),
         dueTime: patch.dueTime || null, createdAt: timestamp, updatedAt: timestamp, deletedAt: null,
       };

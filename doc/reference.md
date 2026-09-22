@@ -16,6 +16,7 @@ My Daily Todo의 설계·개발·검수에 사용하는 외부 자료를 한곳�
 | 광고 | [인앱 광고](https://developers-apps-in-toss.toss.im/ads/intro.html) | 수익화 단계 | 테스트·운영 ID, 지원 형식, 정책 |
 | 알림 | [스마트 발송](https://developers-apps-in-toss.toss.im/smart-message/intro.html) | 알림 단계 | 동의, 발송 조건, 딥링크 |
 | 분석 | [로그 이벤트 가이드](https://developers-apps-in-toss.toss.im/analytics/logging.html) | 분석 설계 | 이벤트 API, 제한 사항, 검증 |
+| 사용자 식별 | [사용자 식별키 발급](https://developers-apps-in-toss.toss.im/user-hash-key/develop.html) | 서버 백업 | `getAnonymousKey()`, 서버 전달·검증 조건 |
 
 ## 3. 프로젝트 내부 기준
 
@@ -25,7 +26,7 @@ My Daily Todo의 설계·개발·검수에 사용하는 외부 자료를 한곳�
 | [requirements-analysis.md](./requirements-analysis.md) | 현재 목업과 요구사항 사이의 차이 및 우선순위 |
 | [architecture.md](./architecture.md) | Local-first 구성, 계층과 보안 경계 |
 | [database-design.md](./database-design.md) | IndexedDB·Postgres 데이터 모델과 보존 정책 |
-| [api-design.md](./api-design.md) | 닉네임 세션·동기화·계정 API 계약 |
+| [api-design.md](./api-design.md) | 익명 식별·세션 교환·스냅샷 동기화 API 계약 |
 | [decision-log.md](./decision-log.md) | 확정·보류·사용자 결정 사항 |
 | [work-log.md](./work-log.md) | 실제 수행 작업, 검증 결과, 남은 작업 기록 |
 | [../AGENTS.md](../AGENTS.md) | 저장소에서 작업하는 에이전트의 실행 규칙 |
@@ -81,6 +82,8 @@ My Daily Todo의 설계·개발·검수에 사용하는 외부 자료를 한곳�
 | 2026-09-10 | 설치된 앱인토스 SDK 3.4.0 타입과 CLI 도움말 확인 | `apps-in-toss.config.ts`, `webBundleDir`, 선행 웹 빌드 방식으로 전환 |
 | 2026-09-10 | Supabase RLS·Data API 보안·Database Functions 공식 문서 확인 | 업무 테이블 직접 권한 회수, 공개 `SECURITY DEFINER` RPC 대신 서버 경계 사용 제안 |
 | 2026-09-15 | 앱인토스 WebView 파일 저장 API 확인 | JSON 백업을 `File.saveBase64`로 기기에 저장하고 일반 브라우저만 `<a download>`로 대체 |
+| 2026-09-17 | 앱인토스 사용자 식별키 발급 문서와 설치된 SDK 타입 확인 | `User.getAnonymousKey()`를 UI 차단 없이 호출하는 identity adapter 구현 |
+| 2026-09-18 | Supabase Edge Function·RLS·API 키·CLI 배포 흐름 확인 | 업무 테이블 직접 권한 철회, 서버 비밀값 분리, `account-sync` v3 배포 |
 
 ## 7. 추가 공식 자료
 
@@ -97,3 +100,4 @@ My Daily Todo의 설계·개발·검수에 사용하는 외부 자료를 한곳�
 - [Supabase Row Level Security](https://supabase.com/docs/guides/database/postgres/row-level-security)
 - [Supabase Data API 보안](https://supabase.com/docs/guides/api/securing-your-api)
 - [Supabase Database Functions](https://supabase.com/docs/guides/database/functions)
+- [Supabase Edge Functions](https://supabase.com/docs/guides/functions)

@@ -47,6 +47,7 @@ import type {
 } from './domain/todos/types';
 import { createBackup, parseAndValidateBackup, restoreBackup } from './features/backup/backup';
 import { saveBackupText } from './features/backup/exportBackup';
+import { initializeCloudSync, syncIfConnected, type CloudSyncStatus } from './infrastructure/sync/cloudSync';
 import {
   clearAllData,
   completeOnboarding,
@@ -104,7 +105,7 @@ function changeMonth(date: string, amount: number) {
 }
 
 function itemType(item: DisplayTodo): ItemType {
-  return item.type === 'recurring' && item.dueTime === null ? 'habit' : 'todo';
+  return item.category;
 }
 
 function Modal({
@@ -186,8 +187,8 @@ function TodoForm({
 }) {
   const titleRef = useRef<HTMLInputElement>(null);
   const [type, setType] = useState<ItemType>(editing ? itemType(editing) : 'todo');
-  const [repeating, setRepeating] = useState(editing?.type === 'recurring' ? true : false);
-  const [emoji, setEmoji] = useState(editing?.emoji ?? (editing?.type === 'recurring' ? '🌱' : ''));
+  const [repeating, setRepeating] = useState(editing?.type === 'recurring');
+  const [emoji, setEmoji] = useState(editing?.emoji || '💡');
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [date, setDate] = useState(editing?.targetDate ?? selectedDate);
   const [time, setTime] = useState(editing?.dueTime ?? '');
@@ -210,8 +211,8 @@ function TodoForm({
 
   function selectType(next: ItemType) {
     setType(next);
-    if (next === 'habit') setRepeating(true);
-    if (!emoji) setEmoji(next === 'habit' ? '🌱' : '');
+    if (!editing) setRepeating(next === 'habit');
+    if (!emoji) setEmoji('💡');
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -225,9 +226,10 @@ function TodoForm({
       return;
     }
     const content = {
+      category: type,
       title,
       memo: String(data.get('memo') ?? '').trim(),
-      emoji: emoji || (isHabit ? '🌱' : '✓'),
+      emoji: emoji || '💡',
       priority: String(data.get('priority') ?? 'normal') as Priority,
       dueTime: isHabit ? null : String(data.get('time') ?? '') || null,
     };
@@ -268,7 +270,7 @@ function TodoForm({
         <div className="emoji-field">
           <span className="field-label">이모지 <em>선택</em></span>
           <input name="emoji" type="hidden" value={emoji} readOnly />
-          <button className="emoji-trigger" type="button" aria-expanded={emojiOpen} aria-controls="emoji-picker" onClick={() => setEmojiOpen((value) => !value)}><span>{emoji || (isHabit ? '🌱' : '✓')}</span><small>눌러서 선택</small></button>
+          <button className="emoji-trigger" type="button" aria-expanded={emojiOpen} aria-controls="emoji-picker" onClick={() => setEmojiOpen((value) => !value)}><span>{emoji || '💡'}</span><small>눌러서 선택</small></button>
           <div className={`emoji-picker ${emojiOpen ? 'is-open' : ''}`} id="emoji-picker" aria-label="이모지 선택" hidden={!emojiOpen}>
             {EMOJIS.map((value) => <button key={value} className={emoji === value ? 'is-selected' : ''} type="button" data-emoji={value} onClick={() => { setEmoji(value); setEmojiOpen(false); }}>{value}</button>)}
           </div>
@@ -336,13 +338,12 @@ type TaskCardProps = {
   open: boolean;
   onOpen: (open: boolean) => void;
   onToggle: () => void;
-  onSkip: () => void;
   onEdit: (button: HTMLButtonElement) => void;
   onDelete: (button: HTMLButtonElement) => void;
 };
 
 function TaskCard({
-  item, snapshot, busy, open, onOpen, onToggle, onSkip, onEdit, onDelete,
+  item, snapshot, busy, open, onOpen, onToggle, onEdit, onDelete,
   setNodeRef, setActivatorNodeRef, sortableStyle, dragging = false, dragAttributes, dragListeners,
 }: TaskCardProps & {
   setNodeRef?: (node: HTMLDivElement | null) => void;
@@ -370,7 +371,7 @@ function TaskCard({
     gesture.dx = dx;
     if (Math.abs(dx) < 8 || Math.abs(dx) < Math.abs(dy)) return;
     event.preventDefault();
-    const width = routine ? 168 : 112;
+    const width = 112;
     event.currentTarget.style.transform = `translateX(${Math.max(-width, Math.min(0, dx))}px)`;
   }
   function endSwipe(event: ReactPointerEvent<HTMLElement>) {
@@ -381,14 +382,13 @@ function TaskCard({
     event.currentTarget.style.transform = '';
     swipeRef.current = null;
   }
-  return <div ref={setNodeRef} style={sortableStyle} className={`swipe-item ${routine ? 'has-skip' : ''} ${open ? 'is-open' : ''} ${dragging ? 'is-dragging' : ''}`} data-id={item.todoId} data-type={routine ? 'habit' : 'todo'} data-order-key={item.key}>
+  return <div ref={setNodeRef} style={sortableStyle} className={`swipe-item ${open ? 'is-open' : ''} ${dragging ? 'is-dragging' : ''}`} data-id={item.todoId} data-type={routine ? 'habit' : 'todo'} data-order-key={item.key}>
     <div className="swipe-actions" aria-hidden={!open}>
       <button className="edit-action" type="button" data-action="edit" tabIndex={open ? 0 : -1} disabled={busy} onClick={(event) => onEdit(event.currentTarget)}>수정</button>
-      {routine && <button className="skip-action" type="button" data-action="skip" tabIndex={open ? 0 : -1} disabled={busy} onClick={onSkip}>{skipped ? '건너뜀 취소' : '건너뜀'}</button>}
       <button className="delete-action" type="button" data-action="delete" tabIndex={open ? 0 : -1} disabled={busy} onClick={(event) => onDelete(event.currentTarget)}>삭제</button>
     </div>
     <article className={`item-card ${done ? 'is-done' : ''} ${skipped ? 'is-skipped' : ''}`} aria-label={`${item.title}${done ? ', 완료됨' : ''}`} onPointerDown={startSwipe} onPointerMove={moveSwipe} onPointerUp={endSwipe} onPointerCancel={endSwipe}>
-      <div className="item-icon" aria-hidden="true">{item.emoji || (routine ? '🌱' : '✓')}</div>
+      <div className="item-icon" aria-hidden="true">{item.emoji || '💡'}</div>
       <div className="item-body"><div className="item-title-row"><strong className="item-title">{item.title}</strong><span className={`item-type-tag ${routine ? 'routine' : 'todo'}`}>{routine ? 'ROUTINE' : 'TODO'}</span></div>{item.memo && <p className="item-memo">{item.memo}</p>}<div className="item-meta">{routine ? <><span className="streak-badge">🔥 {streakFor(snapshot, item)}일 연속</span>{skipped && <span className="status-label">건너뜀</span>}</> : <><span className={`priority-mark ${item.priority}`}>{PRIORITY_LABEL[item.priority]}</span><span>{item.dueTime || '시간 없음'}</span></>}{done && <span className="completion-badge">✓ 완료됨</span>}</div></div>
       <button className={`item-check ${done ? 'is-done' : ''}`} type="button" data-action="toggle" disabled={busy} onClick={onToggle} aria-label={`${item.title} ${done ? '완료 취소' : '완료'}`}>✓</button>
       <button ref={setActivatorNodeRef} {...dragAttributes} {...dragListeners} className="drag-handle" type="button" data-action="drag" aria-label={`${item.title} 순서 변경`}>⠿</button>
@@ -406,7 +406,7 @@ function SortableTaskCard(props: TaskCardProps) {
 function DraggedTaskCard({ item, snapshot }: { item: DisplayTodo; snapshot: Snapshot }) {
   const routine = itemType(item) === 'habit';
   return <article className="item-card drag-overlay" aria-hidden="true">
-    <div className="item-icon">{item.emoji || (routine ? '🌱' : '✓')}</div>
+    <div className="item-icon">{item.emoji || '💡'}</div>
     <div className="item-body"><div className="item-title-row"><strong className="item-title">{item.title}</strong><span className={`item-type-tag ${routine ? 'routine' : 'todo'}`}>{routine ? 'ROUTINE' : 'TODO'}</span></div><div className="item-meta">{routine ? <span className="streak-badge">🔥 {streakFor(snapshot, item)}일 연속</span> : <><span className={`priority-mark ${item.priority}`}>{PRIORITY_LABEL[item.priority]}</span><span>{item.dueTime || '시간 없음'}</span></>}</div></div>
     <span className="drag-overlay-handle" aria-hidden="true">⠿</span>
   </article>;
@@ -426,6 +426,36 @@ function calendarCompletion(items: DisplayTodo[]) {
   const percent = Math.round((measurable.filter((item) => item.status === 'completed').length / measurable.length) * 100);
   const level = percent >= 100 ? 4 : percent >= 75 ? 3 : percent >= 50 ? 2 : percent >= 25 ? 1 : 0;
   return { percent, level };
+}
+
+function CalendarGrowth({ level }: { level: number }) {
+  if (level === 0) return null;
+  return <span className={`calendar-growth growth-level-${level}`} data-growth-level={level} aria-hidden="true">
+    <svg viewBox="0 0 48 27" focusable="false">
+      <path className="growth-ground" d="M5 24.2c8-1.4 29-1.4 38 0" />
+      {level <= 2 && <>
+        <g className="sprout sprout-left">
+          <path d="M18 23V13" />
+          <path className="leaf" d="M18 16c-5-.1-7-2.6-7.5-6.5 4.7-.2 7.3 2.1 7.5 6.5Z" />
+          <path className="leaf" d="M18 13c.4-4.2 3-6.5 7.5-6.3-.3 4-2.9 6.3-7.5 6.3Z" />
+        </g>
+        {level === 2 && <g className="sprout sprout-right">
+          <path d="M32 23v-8" />
+          <path className="leaf" d="M32 18c-4.2-.1-6.2-2.1-6.5-5.2 3.9-.2 6.1 1.7 6.5 5.2Z" />
+          <path className="leaf" d="M32 15c.3-3.3 2.4-5.1 6.2-5-.3 3.2-2.4 5-6.2 5Z" />
+        </g>}
+      </>}
+      {level === 3 && <g className="tree tree-main">
+        <path className="trunk" d="M22 24V14h4v10Z" />
+        <circle cx="24" cy="10" r="7" /><circle cx="18.5" cy="13" r="5" /><circle cx="29.5" cy="13" r="5" />
+      </g>}
+      {level === 4 && <>
+        <g className="tree tree-side tree-left"><path className="trunk" d="M10 24v-7h3v7Z" /><circle cx="11.5" cy="14" r="5" /><circle cx="8" cy="16" r="3.5" /><circle cx="15" cy="16" r="3.5" /></g>
+        <g className="tree tree-main"><path className="trunk" d="M22 24V12h4v12Z" /><circle cx="24" cy="8" r="7" /><circle cx="18.5" cy="12" r="5" /><circle cx="29.5" cy="12" r="5" /></g>
+        <g className="tree tree-side tree-right"><path className="trunk" d="M36 24v-7h3v7Z" /><circle cx="37.5" cy="14" r="5" /><circle cx="34" cy="16" r="3.5" /><circle cx="41" cy="16" r="3.5" /></g>
+      </>}
+    </svg>
+  </span>;
 }
 
 function CalendarView({ anchor, selected, today, snapshot, onMove, onSelect, onToday, onOpenDate, onClose }: {
@@ -457,23 +487,24 @@ function CalendarView({ anchor, selected, today, snapshot, onMove, onSelect, onT
   return <section className="calendar-view" aria-labelledby="calendar-title">
     <header className="calendar-header"><button ref={closeRef} className="icon-button back-button" type="button" aria-label="일정으로 돌아가기" onClick={onClose}>‹</button><h1 id="calendar-title">캘린더</h1><button className="today-button" type="button" onClick={onToday}>오늘</button></header>
     <div className="month-heading"><button type="button" aria-label="이전 달" onClick={() => onMove(-1)}>‹</button><h2>{monthLabel(anchor)}</h2><button type="button" aria-label="다음 달" onClick={() => onMove(1)}>›</button></div>
-    <div className="calendar-completion-legend" aria-label="달성률 꾸밈 기준"><span><i className="level-1" />25%</span><span><i className="level-2" />50%</span><span><i className="level-3" />75%</span><span><i className="level-4" />100%</span></div>
+    <div className="calendar-completion-legend" aria-label="달성률 꾸밈 기준"><span><i>🌱</i>새싹 25%</span><span><i>🌿</i>잎새 50%</span><span><i>🌳</i>나무 75%</span><span><i>🌲</i>숲 100%</span></div>
     <div className="calendar-weekdays" aria-hidden="true">{WEEKDAY_LABELS.map((label) => <span key={label}>{label}</span>)}</div>
     <div className="calendar-grid" aria-label="월간 달력">{days.map((date) => {
       const dateItems = materializeItems(snapshot.todos, snapshot.records, date);
       const { percent, level } = calendarCompletion(dateItems);
-      return <button key={date} className={`calendar-day ${date.slice(0, 7) !== anchorMonth ? 'is-outside' : ''} ${date === selected ? 'is-selected' : ''} ${date === today ? 'is-today' : ''} ${dateItems.length ? 'has-items' : ''} completion-level-${level}`} type="button" data-date={date} data-completion={percent ?? undefined} aria-pressed={date === selected} aria-current={date === today ? 'date' : undefined} aria-label={`${formatHeading(date)}${dateItems.length ? `, ${dateItems.length}개 항목` : ''}${percent !== null ? `, 완료 ${percent}%` : ''}`} onClick={() => onSelect(date)}><span>{Number(date.slice(-2))}</span>{level === 4 && <i className="calendar-complete-mark" aria-hidden="true">✓</i>}</button>;
+      return <button key={date} className={`calendar-day ${date.slice(0, 7) !== anchorMonth ? 'is-outside' : ''} ${date === selected ? 'is-selected' : ''} ${date === today ? 'is-today' : ''} ${dateItems.length ? 'has-items' : ''} completion-level-${level}`} type="button" data-date={date} data-completion={percent ?? undefined} aria-pressed={date === selected} aria-current={date === today ? 'date' : undefined} aria-label={`${formatHeading(date)}${dateItems.length ? `, ${dateItems.length}개 항목` : ''}${percent !== null ? `, 완료 ${percent}%` : ''}`} onClick={() => onSelect(date)}><span className="calendar-date-number">{Number(date.slice(-2))}</span><CalendarGrowth level={level} /></button>;
     })}</div>
-    <section className="calendar-agenda" aria-labelledby="agenda-title"><div className="section-heading-row"><div><p className="section-kicker">SELECTED DAY</p><h2 id="agenda-title">{month}월 {day}일 일정</h2></div><span className="section-meta">{selectedItems.length}개</span></div><div>{selectedItems.length ? selectedItems.map((item) => <div className={`agenda-item ${item.status === 'completed' ? 'is-done' : ''}`} key={item.key}><span>{item.emoji || (itemType(item) === 'habit' ? '🌱' : '✓')}</span><div><strong>{item.title}</strong><small>{agendaDetail(item, snapshot)}</small></div></div>) : <div className="calendar-empty"><strong>일정이 없어요</strong><span>이 날짜를 선택해 새 항목을 추가할 수 있어요.</span></div>}</div><button className="agenda-open-button" type="button" onClick={onOpenDate}>이 날짜 일정 보기</button></section>
+    <section className="calendar-agenda" aria-labelledby="agenda-title"><div className="section-heading-row"><div><p className="section-kicker">SELECTED DAY</p><h2 id="agenda-title">{month}월 {day}일 일정</h2></div><span className="section-meta">{selectedItems.length}개</span></div><div>{selectedItems.length ? selectedItems.map((item) => <div className={`agenda-item ${item.status === 'completed' ? 'is-done' : ''}`} key={item.key}><span>{item.emoji || '💡'}</span><div><strong>{item.title}</strong><small>{agendaDetail(item, snapshot)}</small></div></div>) : <div className="calendar-empty"><strong>일정이 없어요</strong><span>이 날짜를 선택해 새 항목을 추가할 수 있어요.</span></div>}</div><button className="agenda-open-button" type="button" onClick={onOpenDate}>이 날짜 일정 보기</button></section>
   </section>;
 }
 
-function DataPanel({ busy, error, onClose, onExport, onImport, onReset }: { busy: boolean; error: string; onClose: () => void; onExport: () => void; onImport: (file: File) => void; onReset: () => void }) {
-  return <Modal kicker="ACCOUNT" title="데이터 백업 및 복원" compact onClose={onClose}><p className="scope-copy">할 일은 이 기기에만 저장됩니다. 중요한 변경 전에는 백업 파일을 보관해 주세요.</p>{error && <p className="form-error" role="alert">{error}</p>}<div className="data-action-list"><button disabled={busy} onClick={onExport}><strong>백업 내보내기</strong><small>모든 항목과 수행 기록을 JSON 파일로 저장해요.</small></button><label className={busy ? 'is-disabled' : ''}><input className="sr-only" type="file" accept="application/json,.json" aria-label="백업 파일 선택" disabled={busy} onChange={(event) => { const file = event.target.files?.[0]; if (file) onImport(file); event.currentTarget.value = ''; }} /><strong>백업 가져오기</strong><small>검증을 통과한 파일로 현재 데이터를 교체해요.</small></label><button className="danger-data-action" disabled={busy} onClick={onReset}><strong>모든 데이터 삭제</strong><small>기기의 할 일과 수행 기록을 모두 지워요.</small></button></div></Modal>;
+function DataPanel({ busy, error, cloudStatus, onClose, onExport, onImport, onReset }: { busy: boolean; error: string; cloudStatus: CloudSyncStatus; onClose: () => void; onExport: () => void; onImport: (file: File) => void; onReset: () => void }) {
+  const cloudCopy = cloudStatus === 'connected' ? '토스 사용자 식별키로 안전하게 백업 중이에요.' : cloudStatus === 'connecting' ? '클라우드 백업 연결을 확인하고 있어요.' : '현재는 이 기기에 저장돼요. 토스 앱에서 열면 클라우드 백업을 연결합니다.';
+  return <Modal kicker="ACCOUNT" title="데이터 백업 및 복원" compact onClose={onClose}><p className={`cloud-status cloud-status-${cloudStatus}`}><strong>{cloudStatus === 'connected' ? '클라우드 백업 연결됨' : '기기 저장 사용 중'}</strong><span>{cloudCopy}</span></p>{error && <p className="form-error" role="alert">{error}</p>}<div className="data-action-list"><button disabled={busy} onClick={onExport}><strong>백업 내보내기</strong><small>모든 항목과 수행 기록을 JSON 파일로 저장해요.</small></button><label className={busy ? 'is-disabled' : ''}><input className="sr-only" type="file" accept="application/json,.json" aria-label="백업 파일 선택" disabled={busy} onChange={(event) => { const file = event.target.files?.[0]; if (file) onImport(file); event.currentTarget.value = ''; }} /><strong>백업 가져오기</strong><small>검증을 통과한 파일로 현재 데이터를 교체해요.</small></label><button className="danger-data-action" disabled={busy} onClick={onReset}><strong>모든 데이터 삭제</strong><small>기기의 할 일과 수행 기록을 모두 지워요.</small></button></div></Modal>;
 }
 
-function SettingsPanel({ onClose, onGuide, onData, onNotifications }: { onClose: () => void; onGuide: () => void; onData: () => void; onNotifications: () => void }) {
-  return <Modal kicker="ACCOUNT" title="설정" compact onClose={onClose}><button className="setting-row" type="button" onClick={onGuide}><span>사용 가이드</span><b>›</b></button><button className="setting-row" type="button" onClick={onData}><span>데이터 백업 및 복원</span><b>›</b></button><button className="setting-row" type="button" onClick={onNotifications}><span>알림 설정</span><b>›</b></button></Modal>;
+function SettingsPanel({ cloudStatus, onClose, onGuide, onData, onNotifications }: { cloudStatus: CloudSyncStatus; onClose: () => void; onGuide: () => void; onData: () => void; onNotifications: () => void }) {
+  return <Modal kicker="ACCOUNT" title="설정" compact onClose={onClose}><button className="setting-row" type="button" onClick={onGuide}><span>사용 가이드</span><b>›</b></button><button className="setting-row" type="button" onClick={onData}><span>데이터 백업 및 복원<small>{cloudStatus === 'connected' ? '클라우드 연결됨' : '기기 저장'}</small></span><b>›</b></button><button className="setting-row" type="button" onClick={onNotifications}><span>알림 설정</span><b>›</b></button></Modal>;
 }
 
 const ONBOARDING_STEPS = [
@@ -599,12 +630,22 @@ export default function App() {
   const [orders, setOrders] = useState<Record<string, string[]>>({});
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
+  const [cloudStatus, setCloudStatus] = useState<CloudSyncStatus>('connecting');
   const openerRef = useRef<HTMLElement | null>(null);
   const undoTimer = useRef<number | null>(null);
   const noticeTimer = useRef<number | null>(null);
 
   async function refresh() { setSnapshot(await loadSnapshot()); }
-  useEffect(() => { void refresh().catch((reason) => setError(reason instanceof Error ? reason.message : '목록을 불러오지 못했어요.')).finally(() => setReady(true)); }, []);
+  useEffect(() => {
+    void refresh()
+      .then(async () => {
+        const status = await initializeCloudSync();
+        setCloudStatus(status);
+        if (status === 'connected') await refresh();
+      })
+      .catch((reason) => setError(reason instanceof Error ? reason.message : '목록을 불러오지 못했어요.'))
+      .finally(() => setReady(true));
+  }, []);
   useEffect(() => { void hasCompletedOnboarding().then((completed) => { if (!completed) setOnboardingOpen(true); }).catch(() => undefined); }, []);
   useEffect(() => { void loadManualOrders().then(setOrders).catch(() => undefined); }, []);
   useEffect(() => () => { if (undoTimer.current) window.clearTimeout(undoTimer.current); if (noticeTimer.current) window.clearTimeout(noticeTimer.current); }, []);
@@ -637,7 +678,12 @@ export default function App() {
   async function run(action: () => Promise<void>, close = false) {
     if (busy) return;
     setBusy(true); setError('');
-    try { await action(); await refresh(); if (close) closeOverlay(); }
+    try {
+      await action();
+      await refresh();
+      if (close) closeOverlay();
+      void syncIfConnected().then((synced) => { if (synced) void refresh(); });
+    }
     catch (reason) { setError(reason instanceof Error ? reason.message : '저장하지 못했어요. 다시 시도해 주세요.'); throw reason; }
     finally { setBusy(false); }
   }
@@ -736,10 +782,6 @@ export default function App() {
     open: openItem === item.key,
     onOpen: (open) => setOpenItem(open ? item.key : null),
     onToggle: () => void toggleItem(item).catch(() => undefined),
-    onSkip: () => void run(async () => {
-      await setRecurringStatus(item.seriesId!, item.targetDate, item.status === 'skipped' ? 'pending' : 'skipped');
-      showNotice(item.status === 'skipped' ? '건너뜀을 취소했어요.' : '오늘은 건너뛰었어요.');
-    }).catch(() => undefined),
     onEdit: (button) => { openerRef.current = button; setEditing(item); setOpenItem(null); setOverlay('form'); },
     onDelete: (button) => {
       openerRef.current = button; setOpenItem(null);
@@ -767,8 +809,8 @@ export default function App() {
     {calendarOpen && <CalendarView anchor={calendarAnchor} selected={calendarSelected} today={today} snapshot={snapshot} onMove={(amount) => setCalendarAnchor(changeMonth(calendarAnchor, amount))} onSelect={(date) => { setCalendarSelected(date); setCalendarAnchor(`${date.slice(0, 7)}-01`); }} onToday={() => { setCalendarSelected(today); setCalendarAnchor(`${today.slice(0, 7)}-01`); }} onOpenDate={() => { setSelectedDate(calendarSelected); closeCalendar(); }} onClose={closeCalendar} />}
     {overlay === 'form' && <TodoForm selectedDate={selectedDate} editing={editing} source={source} saving={busy} onCancel={closeOverlay} onSubmit={submit} />}
     {overlay === 'delete' && deleteTarget && <Modal kicker="REPEAT ITEM" title="어디에서 삭제할까요?" compact onClose={closeOverlay}><div className="scope-action-list"><button type="button" disabled={busy} onClick={() => void commitDelete(deleteTarget, 'date').catch(() => undefined)}><strong>오늘만</strong><small>선택한 날짜에서만 숨겨요</small></button><button type="button" disabled={busy} onClick={() => void commitDelete(deleteTarget, 'future').catch(() => undefined)}><strong>오늘 이후</strong><small>이전 기록은 그대로 남겨요</small></button><button type="button" disabled={busy} onClick={() => void commitDelete(deleteTarget, 'all').catch(() => undefined)}><strong>전체 반복</strong><small>모든 날짜에서 삭제해요</small></button></div></Modal>}
-    {overlay === 'settings' && <SettingsPanel onClose={closeOverlay} onGuide={() => { setOverlay(null); setOnboardingOpen(true); }} onData={() => { setError(''); setOverlay('data'); }} onNotifications={() => { closeOverlay(); showNotice('알림 설정은 다음 단계에서 제공할 예정이에요.'); }} />}
-    {overlay === 'data' && <DataPanel busy={busy} error={error} onClose={closeOverlay} onExport={() => void exportData()} onImport={(file) => void prepareImport(file)} onReset={() => setOverlay('reset')} />}
+    {overlay === 'settings' && <SettingsPanel cloudStatus={cloudStatus} onClose={closeOverlay} onGuide={() => { setOverlay(null); setOnboardingOpen(true); }} onData={() => { setError(''); setOverlay('data'); }} onNotifications={() => { closeOverlay(); showNotice('알림 설정은 다음 단계에서 제공할 예정이에요.'); }} />}
+    {overlay === 'data' && <DataPanel busy={busy} error={error} cloudStatus={cloudStatus} onClose={closeOverlay} onExport={() => void exportData()} onImport={(file) => void prepareImport(file)} onReset={() => setOverlay('reset')} />}
     {overlay === 'import' && pendingImport && <Modal kicker="DATA" title="백업으로 복원" compact onClose={closeOverlay}><p className="scope-copy"><strong>{pendingImport.name}</strong>의 데이터로 현재 기기 내용을 모두 바꿉니다. 검증된 파일만 한 번에 반영되며 되돌릴 수 없어요.</p><button className="destructive-button" type="button" disabled={busy} onClick={() => void run(async () => { await restoreBackup(pendingImport.text); showNotice('백업 데이터를 복원했어요.'); }, true).catch(() => undefined)}>현재 데이터 교체</button></Modal>}
     {overlay === 'reset' && <Modal kicker="DATA" title="모든 데이터 삭제" compact onClose={closeOverlay}><p className="scope-copy">할 일과 반복 수행 기록을 이 기기에서 모두 삭제합니다. 이 작업은 실행 취소할 수 없어요.</p><button className="destructive-button" type="button" disabled={busy} onClick={() => void run(async () => { await clearAllData(); showNotice('모든 데이터를 삭제했어요.'); }, true).catch(() => undefined)}>모든 데이터 삭제</button></Modal>}
     {receipt && <div className="toast" role="status" aria-live="polite"><span>항목을 삭제했어요.</span><button type="button" onClick={() => void undo().catch(() => undefined)}>실행 취소</button></div>}

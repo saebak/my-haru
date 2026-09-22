@@ -2,11 +2,26 @@
 
 ## 1. 단계별 저장소
 
-- **Phase 1**: Todo와 날짜별 기록을 IndexedDB에만 저장한다.
-- **Phase 2**: 인증 방식 확정 후 Supabase 백업·재설치 복원·동기화를 검토한다.
+- **로컬 기준 저장소**: Todo와 날짜별 기록을 IndexedDB에 먼저 저장한다.
+- **Phase 2**: 공급자 독립 계정과 앱인토스 익명 식별키 기반 Supabase 백업·복원을 사용한다.
 - **Phase 3**: 통계와 알림 저장 구조를 추가한다.
 
-Phase 1부터 안정적인 UUID와 schema version을 사용한다. Supabase 세부 스키마는 현재 동결 상태이며 Phase 1 구현 기준이 아니다.
+Phase 1부터 안정적인 UUID와 schema version을 사용한다. Supabase 스키마는 `20260917000100_create_account_sync.sql`과 `20260918000100_add_identity_exchange_rate_limits.sql`을 기준으로 하며 원격 프로젝트에 적용돼 있다.
+
+### 1.1 Phase 2 서버 테이블
+
+| 테이블 | 역할 |
+| --- | --- |
+| `accounts` | 플랫폼에 종속되지 않는 내부 계정 |
+| `account_identities` | provider와 HMAC 처리된 외부 subject를 내부 계정에 연결 |
+| `account_sessions` | 30일 만료 세션의 SHA-256 해시, 폐기·마지막 사용 시각 |
+| `account_todos` | 계정별 Todo JSON payload와 비교용 `entity_updated_at` |
+| `account_todo_records` | 계정별 TodoRecord JSON payload와 비교용 `entity_updated_at` |
+| `identity_exchange_limits` | 원문을 저장하지 않는 단기 HMAC 버킷과 계정 교환 시도 횟수 |
+
+모든 테이블은 RLS를 활성화하고 `anon`, `authenticated` 직접 접근을 철회한다. 브라우저는 Edge Function만 호출하며 서버 전용 RPC는 `service_role`에만 실행 권한을 둔다.
+
+익명 계정 교환은 1시간 고정 창에서 전체 2,000회, 네트워크 출처별 300회, 같은 식별 주체별 10회로 제한한다. 오래된 제한 버킷은 요청 처리 중 확률적으로 2일 이후 정리한다.
 
 ## 2. Phase 1 데이터 모델
 
@@ -19,6 +34,7 @@ erDiagram
   TODO {
     uuid id PK
     text type
+    text category
     uuid series_id
     int revision
     text title
@@ -45,11 +61,12 @@ erDiagram
 | --- | --- | --- |
 | `id` | `string` | UUID, 생성 후 변경 금지 |
 | `type` | `'one_time' \| 'recurring'` | 필수 |
+| `category` | `'todo' \| 'habit'` | 화면 분류. `type`의 반복 여부와 독립 |
 | `seriesId` | `string \| null` | 반복 Todo만 UUID |
 | `revision` | `number \| null` | 반복 Todo만 1 이상 |
 | `title` | `string` | trim 후 1~120자 |
 | `memo` | `string` | 최대 2,000자, 기본 `''` |
-| `emoji` | `string` | 목록 아이콘, 기본 `✅` |
+| `emoji` | `string` | 목록 아이콘, 신규 기본 `💡` |
 | `status` | `'pending' \| 'completed' \| null` | 일반 Todo만 사용 |
 | `priority` | `'low' \| 'normal' \| 'high'` | 필수 |
 | `dueDate` | `string \| null` | 일반 Todo의 `YYYY-MM-DD`, 반복 Todo는 null |
@@ -66,8 +83,10 @@ erDiagram
 
 불변식:
 
-- `one_time`: `seriesId`, `revision`, 모든 repeat 필드와 `timezone`은 null이고 `status`는 필수다.
-- `recurring`: `seriesId`, `revision`, 반복 필드와 `timezone`은 필수이고 `status`, `completedAt`은 null이다.
+- `one_time`: `category=todo`, `seriesId`, `revision`, 모든 repeat 필드와 `timezone`은 null이고 `status`는 필수다.
+- `recurring`: `category=todo|habit`, `seriesId`, `revision`, 반복 필드와 `timezone`은 필수이고 `status`, `completedAt`은 null이다.
+- `category=todo, type=recurring`은 반복 할 일이며 습관으로 표시하거나 연속 달성 UI를 적용하지 않는다.
+- `category` 도입 전 데이터는 기존 기본 이모지와 시간 필드를 이용한 호환 규칙으로 읽고, 백업 가져오기·새 저장 시 명시적 값을 채운다.
 - 일반 Todo는 `status='completed'`일 때만 `completedAt`이 존재한다.
 - 일반 Todo의 `dueTime`은 `dueDate` 없이 존재할 수 없다. 반복 Todo의 날짜는 occurrence `targetDate`에서 결정한다.
 - `deletedAt === null`인 같은 `seriesId`의 유효 날짜 범위는 겹칠 수 없다.
@@ -153,7 +172,7 @@ DB 이름은 `my-daily-todo`, 현재 version은 `2`다. 초기 React 목업이 �
 | `todoRecords` | `id` | `[seriesId,targetDate]` unique, `seriesId`, `targetDate`, `status`, `deletedAt` |
 | `meta` | `key` | 없음. `schemaVersion`, `onboardingCompleted`, 날짜별 `manualOrders` 저장 |
 
-Phase 1에는 `outbox`, `conflicts`, `syncMeta`, `reminders`를 만들지 않는다.
+현재는 `meta.cloudSession`에 클라우드 세션 메타데이터를 저장한다. `outbox`, `conflicts`, 증분 `syncMeta`, `reminders`는 아직 만들지 않는다.
 
 ### 열기와 migration 규칙
 
@@ -191,9 +210,12 @@ Phase 1에는 `outbox`, `conflicts`, `syncMeta`, `reminders`를 만들지 않는
 
 통합 테스트는 clear 직후, 각 store put 중간, transaction commit 직전 실패를 주입하고 기존 데이터가 동일하게 남는지 검증한다.
 
-## 9. Phase 2·3 동결 범위
+## 9. 서버 스냅샷과 후속 범위
 
-- Phase 2 인증, 닉네임, Supabase Postgres, RLS, Edge Function, outbox, 충돌 해결 세부 설계는 확정하지 않는다.
-- 기존 `api-design.md`와 Supabase migration은 검토 초안이며 적용하지 않는다.
-- Phase 2 시작 시 인증 방식부터 결정한 뒤 Todo/TodoRecord 모델을 기준으로 서버 스키마를 다시 설계한다.
+- `account_todos`와 `account_todo_records`는 계정 ID, 엔터티 ID, JSON payload, 비교용 `entity_updated_at`을 저장한다.
+- 같은 엔터티는 더 최신이거나 같은 `updatedAt` 입력을 upsert하고, 요청에서 빠진 엔터티는 삭제하지 않는다.
+- 삭제는 payload의 `deletedAt` tombstone으로 유지한다.
+- 클라이언트는 서버 응답을 백업과 동일한 validator로 검증한 뒤 IndexedDB 전체 교체 transaction을 사용한다.
+- 현재 전체 스냅샷 방식은 데이터 증가 시 전송량·쓰기 비용이 커질 수 있다. 운영 지표를 확인한 뒤 outbox, 멱등 operation, 변경 cursor와 충돌 보관함을 추가한다.
+- 닉네임 프로토타입 migration은 `supabase/archive/`에 비활성 보관하며 적용하지 않는다.
 - Phase 3에서 통계 조회·집계와 reminder 저장·DST 정책을 설계한다.

@@ -15,7 +15,7 @@ function validBackup(): TodoBackup {
     timezone: 'Asia/Seoul',
     data: {
       todos: [{
-        id: 'todo-1', type: 'one_time', seriesId: null, revision: null, title: '백업 항목', memo: '', emoji: '✅',
+        id: 'todo-1', type: 'one_time', category: 'todo', seriesId: null, revision: null, title: '백업 항목', memo: '', emoji: '✅',
         status: 'pending', priority: 'normal', dueDate: '2026-09-11', dueTime: null, completedAt: null,
         repeatFrequency: null, repeatInterval: null, repeatWeekdays: [], repeatStartDate: null, repeatEndDate: null,
         timezone: null, createdAt: now, updatedAt: now, deletedAt: null,
@@ -47,6 +47,12 @@ describe('backup validation and restore', () => {
     await restoreBackup(JSON.stringify(validBackup()));
     const exported = await createBackup({ now: () => new Date(now) });
     expect(exported).toEqual(validBackup());
+  });
+
+  it('adds a category when importing an older backup without one', () => {
+    const backup = validBackup();
+    delete backup.data.todos[0].category;
+    expect(parseAndValidateBackup(JSON.stringify(backup)).data.todos[0].category).toBe('todo');
   });
 
   it('rejects duplicate logical records before writing', () => {

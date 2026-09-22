@@ -1,5 +1,3 @@
-import { File } from '@apps-in-toss/web-framework';
-
 export function encodeUtf8Base64(value: string) {
   const bytes = new TextEncoder().encode(value);
   let binary = '';
@@ -12,13 +10,15 @@ export function encodeUtf8Base64(value: string) {
 
 export async function saveBackupText(text: string, fileName: string) {
   let supportsNativeSave = false;
+  let nativeFile: typeof import('@apps-in-toss/web-framework').File | null = null;
   try {
-    supportsNativeSave = File.saveBase64.isSupported();
+    nativeFile = (await import('@apps-in-toss/web-framework')).File;
+    supportsNativeSave = nativeFile.saveBase64.isSupported();
   } catch {
     supportsNativeSave = false;
   }
   if (supportsNativeSave) {
-    await File.saveBase64({
+    await nativeFile!.saveBase64({
       data: encodeUtf8Base64(text),
       fileName,
       mimeType: 'application/json',

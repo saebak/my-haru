@@ -3,6 +3,7 @@ export type Priority = 'low' | 'normal' | 'high';
 export type TodoStatus = 'pending' | 'completed';
 export type TodoRecordStatus = TodoStatus | 'skipped';
 export type RepeatFrequency = 'daily' | 'weekly' | 'interval_days';
+export type ItemCategory = 'todo' | 'habit';
 
 export type TodoOverrides = {
   title?: string;
@@ -14,6 +15,7 @@ export type TodoOverrides = {
 export type TodoData = {
   id: string;
   type: 'one_time' | 'recurring';
+  category?: ItemCategory;
   seriesId: string | null;
   revision: number | null;
   title: string;
@@ -52,6 +54,7 @@ export type DisplayTodo = {
   key: string;
   todoId: string;
   type: TodoData['type'];
+  category: ItemCategory;
   seriesId: string | null;
   targetDate: CalendarDate;
   title: string;
@@ -66,6 +69,7 @@ export type DisplayTodo = {
 };
 
 export type TodoContentPatch = {
+  category?: ItemCategory;
   title: string;
   memo: string;
   emoji: string;

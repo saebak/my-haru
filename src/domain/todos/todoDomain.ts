@@ -1,5 +1,5 @@
 import { daysBetween, isoWeekday, parseDate, startOfWeek } from './date';
-import type { DisplayTodo, ListQuery, TodoData, TodoRecordData } from './types';
+import type { DisplayTodo, ItemCategory, ListQuery, TodoData, TodoRecordData } from './types';
 
 export type TodoErrorCode =
   | 'VALIDATION'
@@ -25,7 +25,18 @@ export class TodoError extends Error {
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
 
+export function resolveTodoCategory(todo: Pick<TodoData, 'type' | 'category' | 'emoji' | 'dueTime'>): ItemCategory {
+  if (todo.category === 'todo' || todo.category === 'habit') return todo.category;
+  if (todo.type === 'one_time') return 'todo';
+  if (todo.emoji === '✓' || todo.emoji === '✅') return 'todo';
+  if (todo.emoji === '🌱') return 'habit';
+  return todo.dueTime === null ? 'habit' : 'todo';
+}
+
 export function validateTodo(todo: TodoData): void {
+  if (todo.category !== undefined && todo.category !== 'todo' && todo.category !== 'habit') {
+    throw new TodoError('VALIDATION', '항목 종류가 올바르지 않아요.', false);
+  }
   if (!todo.title.trim() || todo.title.trim().length > 120) {
     throw new TodoError('VALIDATION', '제목은 1~120자로 입력해 주세요.', false, 'title');
   }
@@ -36,6 +47,9 @@ export function validateTodo(todo: TodoData): void {
     throw new TodoError('VALIDATION', '올바른 시간을 입력해 주세요.', false, 'dueTime');
   }
   if (todo.type === 'one_time') {
+    if (todo.category === 'habit') {
+      throw new TodoError('VALIDATION', '습관은 반복 설정이 필요해요.', false);
+    }
     if (!todo.dueDate || !DATE_PATTERN.test(todo.dueDate)) {
       throw new TodoError('VALIDATION', '날짜를 선택해 주세요.', false, 'dueDate');
     }
@@ -100,7 +114,7 @@ export function materializeItems(todos: TodoData[], records: TodoRecordData[], d
     if (todo.type === 'one_time') {
       if (todo.dueDate !== date) continue;
       items.push({
-        key: todo.id, todoId: todo.id, type: todo.type, seriesId: null, targetDate: date,
+        key: todo.id, todoId: todo.id, type: todo.type, category: resolveTodoCategory(todo), seriesId: null, targetDate: date,
         title: todo.title, memo: todo.memo, emoji: todo.emoji, priority: todo.priority,
         dueTime: todo.dueTime, status: todo.status ?? 'pending', completedAt: todo.completedAt,
         createdAt: todo.createdAt, revision: null,
@@ -111,7 +125,7 @@ export function materializeItems(todos: TodoData[], records: TodoRecordData[], d
     const record = recordBySeries.get(todo.seriesId!);
     if (record?.hidden) continue;
     items.push({
-      key: `${todo.seriesId}:${date}`, todoId: todo.id, type: todo.type, seriesId: todo.seriesId,
+      key: `${todo.seriesId}:${date}`, todoId: todo.id, type: todo.type, category: resolveTodoCategory(todo), seriesId: todo.seriesId,
       targetDate: date, title: record?.overrides?.title ?? todo.title,
       memo: record?.overrides?.memo ?? todo.memo, emoji: todo.emoji,
       priority: record?.overrides?.priority ?? todo.priority,

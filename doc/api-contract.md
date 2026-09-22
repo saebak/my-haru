@@ -1,8 +1,8 @@
-# Phase 1 클라이언트 데이터 계약
+# 클라이언트 데이터·동기화 계약
 
 ## 1. 범위
 
-이 문서는 Phase 1 React 화면, 도메인 함수, IndexedDB 저장소 사이의 구현 계약이다. Todo와 TodoRecord는 네트워크나 Supabase에 쓰지 않는다. 관련 요구사항은 `TODO-001`~`TODO-008`, `LIST-001`~`LIST-005`, `HABIT-001`~`HABIT-005`, `HABIT-007`~`HABIT-008`, `DATA-001`~`DATA-003`, `DATA-007`, `UX-005`~`UX-007`이다.
+이 문서는 React 화면, 도메인 함수, IndexedDB 저장소와 Supabase 백업 경계 사이의 구현 계약이다. Todo와 TodoRecord는 IndexedDB에 먼저 저장되고, 지원 환경에서는 검증된 전체 스냅샷이 `account-sync` Edge Function으로 동기화된다. 관련 요구사항은 `TODO-001`~`TODO-008`, `LIST-001`~`LIST-005`, `HABIT-001`~`HABIT-005`, `HABIT-007`~`HABIT-008`, `DATA-001`~`DATA-007`, `SYNC-001`~`SYNC-013`, `UX-005`~`UX-007`이다.
 
 ## 2. 값과 엔터티
 
@@ -17,6 +17,7 @@ type RepeatFrequency = 'daily' | 'weekly' | 'interval_days';
 type TodoData = {
   id: string;
   type: 'one_time' | 'recurring';
+  category: 'todo' | 'habit';
   seriesId: string | null;
   revision: number | null;
   title: string;
@@ -59,7 +60,7 @@ type TodoRecordData = {
 };
 ```
 
-제목은 trim 후 1~120자, 메모는 최대 2,000자다. 일반 Todo의 상태와 `completedAt`, 반복 기록의 상태와 `completedAt`은 항상 함께 바뀐다. 반복 Todo는 날짜별 상태를 TodoRecord에만 기록한다.
+제목은 trim 후 1~120자, 메모는 최대 2,000자다. `type`은 단일·반복 저장 방식이고 `category`는 할 일·습관 표시 의미다. 일반 Todo의 상태와 `completedAt`, 반복 기록의 상태와 `completedAt`은 항상 함께 바뀐다. 반복 Todo는 날짜별 상태를 TodoRecord에만 기록한다.
 
 ## 3. 오류 모델
 
@@ -149,3 +150,22 @@ DB 이름은 `my-daily-todo`, 현재 물리 버전은 `2`다. v1은 초기 React
 - `meta`: keyPath `key`; `schemaVersion=2`
 
 `versionchange`를 받은 연결은 닫는다. 열기가 다른 탭에 막히면 `STORAGE_BLOCKED`, 더 높은 버전이면 `UNSUPPORTED_DATABASE_VERSION`으로 UI가 안내한다.
+
+## 9. 익명 식별과 클라우드 동기화
+
+클라이언트는 앱인토스 `User.getAnonymousKey()` 원문을 영속화하지 않고 `provider='toss_anonymous'`와 함께 교환 요청에만 사용한다. 서버는 원문을 HMAC 처리해 내부 계정과 연결하고, 30일 만료 세션 토큰을 한 번 반환한다. 클라이언트는 세션을 IndexedDB `meta.cloudSession`에 보관하며 서버는 토큰의 SHA-256 해시만 저장한다.
+
+```ts
+type CloudSnapshot = {
+  schemaVersion: 2;
+  todos: TodoData[];
+  records: TodoRecordData[];
+};
+
+exchangeIdentity(anonymousKey: string): Promise<CloudSession>;
+syncSnapshot(session: CloudSession, snapshot: CloudSnapshot): Promise<CloudSnapshot>;
+```
+
+동기화 응답은 로컬 백업과 같은 불변식·개수 제한으로 전부 검증한 뒤 단일 IndexedDB transaction으로 교체한다. 엔터티별 `updatedAt`이 더 최신이거나 같은 입력을 반영하고, 누락은 삭제로 보지 않으며 `deletedAt` tombstone만 삭제를 전달한다. 네트워크·세션·서버 오류는 로컬 변경 성공을 되돌리지 않는다.
+
+서버 요청·응답과 오류 코드는 `api-design.md`를 따른다. 원문 식별키, 세션 토큰, 제목과 메모는 로그에 남기지 않는다.
