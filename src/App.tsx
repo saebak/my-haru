@@ -31,6 +31,8 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { SchedulePicker } from './components/SchedulePicker';
+import { Notebook } from './components/Notebook';
+import { ActionIcon } from './components/ActionIcon';
 
 import { addDays, formatDate, monthGrid, parseDate, todayInSeoul } from './domain/todos/date';
 import { materializeItems, occursOn, TodoError } from './domain/todos/todoDomain';
@@ -68,7 +70,7 @@ import {
 type Snapshot = { todos: TodoData[]; records: TodoRecordData[] };
 type ItemType = 'todo' | 'habit';
 type EditScope = 'date' | 'future' | 'all';
-type Overlay = 'form' | 'delete' | 'settings' | 'data' | 'import' | 'reset' | null;
+type Overlay = 'detail' | 'copy' | 'form' | 'delete' | 'settings' | 'data' | 'import' | 'reset' | null;
 
 const EMPTY_SNAPSHOT: Snapshot = { todos: [], records: [] };
 const PRIORITY_LABEL: Record<Priority, string> = { high: '중요', normal: '보통', low: '낮음' };
@@ -117,6 +119,7 @@ function Modal({
   onClose,
   children,
   initialFocus,
+  headerAction,
 }: {
   kicker: string;
   title: string;
@@ -125,6 +128,7 @@ function Modal({
   onClose: () => void;
   children: ReactNode;
   initialFocus?: RefObject<HTMLElement | null>;
+  headerAction?: ReactNode;
 }) {
   const panelRef = useRef<HTMLElement>(null);
   const titleId = `sheet-title-${useId().replace(/:/g, '')}`;
@@ -165,7 +169,7 @@ function Modal({
   return <div className={`modal-backdrop ${compact ? '' : 'form-dialog-backdrop'}`} onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
     <section ref={panelRef} className={`bottom-sheet ${compact ? 'compact-sheet' : 'form-dialog'}`} role="dialog" aria-modal="true" aria-labelledby={titleId}>
       <div className="sheet-handle" aria-hidden="true" />
-      <div className="sheet-header"><div><p className="section-kicker">{kicker}</p><h2 id={titleId}>{title}</h2></div><button className="icon-button" type="button" onClick={onClose} aria-label={closeLabel}>×</button></div>
+      <div className="sheet-header"><div><p className="section-kicker">{kicker}</p><h2 id={titleId}>{title}</h2></div><div className="header-actions">{headerAction}<button className="icon-button" type="button" onClick={onClose} aria-label={closeLabel}>×</button></div></div>
       {children}
     </section>
   </div>;
@@ -339,12 +343,13 @@ type TaskCardProps = {
   open: boolean;
   onOpen: (open: boolean) => void;
   onToggle: () => void;
+  onView: (button: HTMLButtonElement) => void;
   onEdit: (button: HTMLButtonElement) => void;
   onDelete: (button: HTMLButtonElement) => void;
 };
 
 function TaskCard({
-  item, snapshot, busy, open, onOpen, onToggle, onEdit, onDelete,
+  item, snapshot, busy, open, onOpen, onToggle, onEdit, onDelete, onView,
   setNodeRef, setActivatorNodeRef, sortableStyle, dragging = false, dragAttributes, dragListeners,
 }: TaskCardProps & {
   setNodeRef?: (node: HTMLDivElement | null) => void;
@@ -354,43 +359,48 @@ function TaskCard({
   dragAttributes?: DraggableAttributes;
   dragListeners?: ReturnType<typeof useSortable>['listeners'];
 }) {
-  const swipeRef = useRef<{ pointerId: number; startX: number; startY: number; dx: number } | null>(null);
   const routine = itemType(item) === 'habit';
   const done = item.status === 'completed';
   const skipped = item.status === 'skipped';
+  const rowGesture = useRef<{ pointerId: number; x: number; y: number; vertical: boolean } | null>(null);
+  const rowClick = useRef(false);
 
-  function startSwipe(event: ReactPointerEvent<HTMLElement>) {
-    if ((event.target as HTMLElement).closest('button')) return;
-    swipeRef.current = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, dx: 0 };
-    event.currentTarget.setPointerCapture(event.pointerId);
+  function startRowSwipe(event: ReactPointerEvent<HTMLElement>) {
+    rowClick.current = false;
+    if (!event.isPrimary || event.button !== 0 || (event.target as HTMLElement).closest('button:not(.item-detail-button)')) return;
+    rowGesture.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, vertical: false };
+    event.currentTarget.setPointerCapture?.(event.pointerId);
   }
-  function moveSwipe(event: ReactPointerEvent<HTMLElement>) {
-    const gesture = swipeRef.current;
-    if (!gesture) return;
-    const dx = event.clientX - gesture.startX;
-    const dy = event.clientY - gesture.startY;
-    gesture.dx = dx;
-    if (Math.abs(dx) < 8 || Math.abs(dx) < Math.abs(dy)) return;
-    event.preventDefault();
-    const width = 112;
-    event.currentTarget.style.transform = `translateX(${Math.max(-width, Math.min(0, dx))}px)`;
-  }
-  function endSwipe(event: ReactPointerEvent<HTMLElement>) {
-    const gesture = swipeRef.current;
-    if (!gesture) return;
-    if (event.currentTarget.hasPointerCapture(gesture.pointerId)) event.currentTarget.releasePointerCapture(gesture.pointerId);
-    if (Math.abs(gesture.dx) > 8) onOpen(gesture.dx < -42);
+  function endRowSwipe(event: ReactPointerEvent<HTMLElement>) {
+    const start = rowGesture.current;
+    rowGesture.current = null;
+    if (start && event.currentTarget.hasPointerCapture?.(start.pointerId)) event.currentTarget.releasePointerCapture(start.pointerId);
     event.currentTarget.style.transform = '';
-    swipeRef.current = null;
+    event.currentTarget.parentElement?.classList.remove('is-swiping');
+    if (!start || start.pointerId !== event.pointerId || start.vertical) return;
+    const dx = event.clientX - start.x;
+    if (Math.abs(dx) > 42 && Math.abs(dx) > Math.abs(event.clientY - start.y) * 1.5) {
+      rowClick.current = true;
+      onOpen(dx < 0);
+      window.setTimeout(() => { rowClick.current = false; }, 0);
+    }
   }
+  function cancelRowSwipe(event: ReactPointerEvent<HTMLElement>) {
+    const start = rowGesture.current;
+    rowGesture.current = null;
+    if (start && event.currentTarget.hasPointerCapture?.(start.pointerId)) event.currentTarget.releasePointerCapture(start.pointerId);
+    event.currentTarget.style.transform = '';
+    event.currentTarget.parentElement?.classList.remove('is-swiping');
+  }
+
   return <div ref={setNodeRef} style={sortableStyle} className={`swipe-item ${open ? 'is-open' : ''} ${dragging ? 'is-dragging' : ''}`} data-id={item.todoId} data-type={routine ? 'habit' : 'todo'} data-order-key={item.key}>
     <div className="swipe-actions" aria-hidden={!open}>
       <button className="edit-action" type="button" data-action="edit" tabIndex={open ? 0 : -1} disabled={busy} onClick={(event) => onEdit(event.currentTarget)}>수정</button>
       <button className="delete-action" type="button" data-action="delete" tabIndex={open ? 0 : -1} disabled={busy} onClick={(event) => onDelete(event.currentTarget)}>삭제</button>
     </div>
-    <article className={`item-card ${done ? 'is-done' : ''} ${skipped ? 'is-skipped' : ''}`} aria-label={`${item.title}${done ? ', 완료됨' : ''}`} onPointerDown={startSwipe} onPointerMove={moveSwipe} onPointerUp={endSwipe} onPointerCancel={endSwipe}>
+<article className={`item-card ${done ? 'is-done' : ''} ${skipped ? 'is-skipped' : ''}`} aria-label={`${item.title}${done ? ', 완료됨' : ''}`} onKeyDown={event => { if (event.key === 'F10' && event.shiftKey) { event.preventDefault(); onOpen(true); const row = event.currentTarget.parentElement; window.setTimeout(() => row?.querySelector<HTMLButtonElement>('[data-action="edit"]')?.focus(), 0); } }} onPointerDown={startRowSwipe} onPointerMove={event => { const start = rowGesture.current; if (!start || start.pointerId !== event.pointerId) return; const dx = event.clientX - start.x; const dy = event.clientY - start.y; if (Math.abs(dy) > 12 && Math.abs(dy) > Math.abs(dx)) start.vertical = true; if (!start.vertical && Math.abs(dx) > 8) { event.preventDefault(); event.currentTarget.parentElement?.classList.add('is-swiping'); event.currentTarget.style.transform = `translateX(${Math.max(-112, Math.min(0, (open ? -112 : 0) + dx))}px)`; } }} onPointerUp={endRowSwipe} onPointerCancel={cancelRowSwipe} onLostPointerCapture={cancelRowSwipe} onClickCapture={event => { if (rowClick.current && event.detail !== 0) { event.preventDefault(); event.stopPropagation(); rowClick.current = false; } }}>
       <div className="item-icon" aria-hidden="true">{item.emoji || '💡'}</div>
-      <div className="item-body"><div className="item-title-row"><strong className="item-title">{item.title}</strong><span className={`item-type-tag ${routine ? 'routine' : 'todo'}`}>{routine ? 'ROUTINE' : 'TODO'}</span></div>{item.memo && <p className="item-memo">{item.memo}</p>}<div className="item-meta">{routine ? <><span className="streak-badge">🔥 {streakFor(snapshot, item)}일 연속</span>{skipped && <span className="status-label">건너뜀</span>}</> : <><span className={`priority-mark ${item.priority}`}>{PRIORITY_LABEL[item.priority]}</span>{item.dueTime && <span>{item.dueTime}</span>}</>}{done && <span className="completion-badge">✓ 완료됨</span>}</div></div>
+      <button type="button" className="item-body item-detail-button" aria-label={`${item.title} 상세보기`} onClick={event => onView(event.currentTarget)}><span className="item-title-row"><strong className="item-title">{item.title}</strong><span className={`item-type-tag ${routine ? 'routine' : 'todo'}`}>{routine ? 'ROUTINE' : 'TODO'}</span></span>{item.memo && <span className="item-memo">{item.memo}</span>}<span className="item-meta">{routine ? <span className="streak-badge">🔥 {streakFor(snapshot, item)}일 연속</span> : <span className={`priority-mark ${item.priority}`}>{PRIORITY_LABEL[item.priority]}</span>}{item.dueTime && <span>{item.dueTime}</span>}{skipped && <span>건너뜀</span>}{done && <span className="completion-badge">✓ 완료됨</span>}</span></button>
       <button className={`item-check ${done ? 'is-done' : ''}`} type="button" data-action="toggle" disabled={busy} onClick={onToggle} aria-label={`${item.title} ${done ? '완료 취소' : '완료'}`}>✓</button>
       <button ref={setActivatorNodeRef} {...dragAttributes} {...dragListeners} className="drag-handle" type="button" data-action="drag" aria-label={`${item.title} 순서 변경`}>⠿</button>
     </article>
@@ -570,8 +580,6 @@ function sortDailyItems(items: DisplayTodo[], order: string[]) {
     const completionOrder = Number(a.status === 'completed') - Number(b.status === 'completed');
     if (completionOrder !== 0) return completionOrder;
     if (positions.has(a.key) || positions.has(b.key)) return (positions.get(a.key) ?? 9_999) - (positions.get(b.key) ?? 9_999);
-    if (a.type !== b.type) return a.type === 'one_time' ? -1 : 1;
-    if (a.type === 'one_time') return (a.dueTime || '99:99').localeCompare(b.dueTime || '99:99') || a.createdAt.localeCompare(b.createdAt);
     return a.createdAt.localeCompare(b.createdAt);
   });
 }
@@ -621,6 +629,12 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [editing, setEditing] = useState<DisplayTodo | null>(null);
+  const [viewing, setViewing] = useState<DisplayTodo | null>(null);
+  const [copyDate, setCopyDate] = useState(today);
+  const [notebookOpen, setNotebookOpen] = useState(false);
+  const actionLock = useRef(false);
+  const gesture = useRef<{ id: number; x: number; y: number; vertical: boolean } | null>(null);
+  const suppressClick = useRef(false);
   const [deleteTarget, setDeleteTarget] = useState<DisplayTodo | null>(null);
   const [overlay, setOverlay] = useState<Overlay>(null);
   const [calendarOpen, setCalendarOpen] = useState(false);
@@ -684,11 +698,12 @@ export default function App() {
     noticeTimer.current = window.setTimeout(() => setNotice(''), 3_500);
   }
   function closeOverlay() {
-    setOverlay(null); setEditing(null); setDeleteTarget(null); setPendingImport(null);
+    setOverlay(null); setEditing(null); setViewing(null); setDeleteTarget(null); setPendingImport(null);
     queueMicrotask(() => openerRef.current?.focus());
   }
   async function run(action: () => Promise<void>, close = false) {
-    if (busy) return;
+    if (actionLock.current) return;
+    actionLock.current = true;
     setBusy(true); setError('');
     try {
       await action();
@@ -697,7 +712,7 @@ export default function App() {
       void syncIfConnected().then((synced) => { if (synced) void refresh(); });
     }
     catch (reason) { setError(reason instanceof Error ? reason.message : '저장하지 못했어요. 다시 시도해 주세요.'); throw reason; }
-    finally { setBusy(false); }
+    finally { actionLock.current = false; setBusy(false); }
   }
   function firstSeriesOccurrence(item: DisplayTodo) {
     const first = snapshot.todos
@@ -797,6 +812,7 @@ export default function App() {
     open: openItem === item.key,
     onOpen: (open) => setOpenItem(open ? item.key : null),
     onToggle: () => void toggleItem(item).catch(() => undefined),
+    onView: (button) => { openerRef.current = button; setViewing(item); setOpenItem(null); setOverlay('detail'); },
     onEdit: (button) => { openerRef.current = button; setEditing(item); setOpenItem(null); setOverlay('form'); },
     onDelete: (button) => {
       openerRef.current = button; setOpenItem(null);
@@ -805,9 +821,26 @@ export default function App() {
     },
   });
 
+  function beginDateSwipe(event: ReactPointerEvent<HTMLElement>) {
+    suppressClick.current = false;
+    if (gesture.current || !event.isPrimary || event.button !== 0 || overlay || calendarOpen || notebookOpen || activeDragId || (event.target as HTMLElement).closest('.swipe-item, button, input, textarea')) { gesture.current = null; return; }
+    gesture.current = { id: event.pointerId, x: event.clientX, y: event.clientY, vertical: false };
+  }
+  function endDateSwipe(event: ReactPointerEvent<HTMLElement>) {
+    const start = gesture.current;
+    gesture.current = null;
+    if (!start || start.id !== event.pointerId || start.vertical) return;
+    const dx = event.clientX - start.x;
+    const dy = event.clientY - start.y;
+    if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+    suppressClick.current = true;
+    const next = addDays(selectedDate, dx < 0 ? 1 : -1);
+    setSelectedDate(next); setDatePageCenter(next); setOpenItem(null);
+  }
+
   return <>
-    <main className="app-shell" aria-label="My Daily Todo">
-      <header className="app-header"><div className="header-date"><p className="eyebrow">{formatHeading(selectedDate)}</p>{selectedDate !== today && <button className="today-button" type="button" onClick={() => { setSelectedDate(today); setDatePageCenter(today); }}><span>오늘</span></button>}</div><div className="header-actions"><button className="icon-button calendar-button" type="button" aria-label="캘린더 열기" onClick={(event) => openCalendar(event.currentTarget)}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14a2 2 0 0 1 2 2v14H3V6a2 2 0 0 1 2-2Zm0 5h14M8 2v4m8-4v4" /></svg></button><button className="icon-button avatar-button" type="button" aria-label="설정 열기" onClick={(event) => { openerRef.current = event.currentTarget; setOverlay('settings'); }}><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3.5" /><path d="M5.5 20a6.5 6.5 0 0 1 13 0" /></svg></button></div></header>
+    <main className="app-shell" aria-label="My Daily Todo" onPointerDown={beginDateSwipe} onPointerMove={event => { const start = gesture.current; if (start && Math.abs(event.clientY - start.y) > 12 && Math.abs(event.clientY - start.y) > Math.abs(event.clientX - start.x)) start.vertical = true; }} onPointerUp={endDateSwipe} onPointerCancel={() => { gesture.current = null; }} onClickCapture={event => { if (suppressClick.current && event.detail !== 0) { event.preventDefault(); event.stopPropagation(); suppressClick.current = false; } }}>
+<header className="app-header"><div className="header-date"><p className="eyebrow">{formatHeading(selectedDate)}</p>{selectedDate !== today && <button className="today-button" type="button" onClick={() => { setSelectedDate(today); setDatePageCenter(today); }}><span>오늘</span></button>}</div><div className="header-actions"><button className="icon-button notebook-entry" type="button" aria-label="메모" title="메모장" onClick={event => { openerRef.current = event.currentTarget; setNotebookOpen(true); }}><ActionIcon name="note" /></button><button className="icon-button calendar-button" type="button" aria-label="캘린더 열기" onClick={(event) => openCalendar(event.currentTarget)}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14a2 2 0 0 1 2 2v14H3V6a2 2 0 0 1 2-2Zm0 5h14M8 2v4m8-4v4" /></svg></button><button className="icon-button avatar-button" type="button" aria-label="설정 열기" onClick={(event) => { openerRef.current = event.currentTarget; setOverlay('settings'); }}><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3.5" /><path d="M5.5 20a6.5 6.5 0 0 1 13 0" /></svg></button></div></header>
       <DateStrip selectedDate={selectedDate} pageCenter={datePageCenter} today={today} snapshot={snapshot} onSelect={setSelectedDate} onPage={setDatePageCenter} />
       {onboardingOpen && <Onboarding onFinish={finishOnboarding} />}
       <section className="progress-card" aria-labelledby="progress-title"><div className="progress-heading"><h2 id="progress-title">{selectedDate === today ? '오늘의 달성' : `${dateParts(selectedDate).month}월 ${dateParts(selectedDate).day}일의 달성`}</h2><div className="progress-numbers"><span>{completed}</span> / <span>{activeItems.length}</span><strong>{percent}%</strong></div></div><div className="progress-track" role="progressbar" aria-label={`${dateParts(selectedDate).month}월 ${dateParts(selectedDate).day}일 전체 진행률`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}><span style={{ width: `${percent}%` }} /></div><p className="progress-copy">{!activeItems.length ? '작은 계획 하나로 하루를 시작해 보세요.' : completed === activeItems.length ? '모두 해냈어요. 수고했어요!' : `${activeItems.length}개 중 ${completed}개 완료했어요.`}</p></section>
@@ -821,13 +854,16 @@ export default function App() {
         </DndContext>
       </section><div className="bottom-space" aria-hidden="true" />
     </main>
+    {notebookOpen && <Notebook onClose={() => { setNotebookOpen(false); queueMicrotask(() => openerRef.current?.focus()); }} />}
+    {overlay === 'detail' && viewing && <Modal kicker={viewing.category === 'habit' ? 'ROUTINE' : 'TODO'} title="상세보기" onClose={closeOverlay} headerAction={<button className="icon-button" type="button" aria-label="복사" title="복사" onClick={() => { setCopyDate(viewing.targetDate); setError(''); setOverlay('copy'); }}><ActionIcon name="copy" /></button>}><div className="todo-detail"><h3>{viewing.emoji} {viewing.title}</h3><p>{formatHeading(viewing.targetDate)}{viewing.dueTime ? ` · ${viewing.dueTime}` : ''}</p><h4>메모</h4><p className="detail-memo">{viewing.memo || '작성된 메모가 없어요.'}</p></div></Modal>}
+{overlay === 'copy' && viewing && <Modal kicker="COPY" title="다른 날짜로 복사" compact onClose={closeOverlay}><form className="copy-form" onSubmit={event => { event.preventDefault(); const targetDate = String(new FormData(event.currentTarget).get('copyDate')); void run(async () => { await createTodo({ type: 'one_time', category: viewing.category, title: viewing.title, memo: viewing.memo, emoji: viewing.emoji, priority: viewing.priority, dueTime: viewing.dueTime, dueDate: targetDate }); setSelectedDate(targetDate); setDatePageCenter(targetDate); showNotice('선택한 날짜에 복사했어요.'); }, true).catch(() => undefined); }}><p>내용과 시간을 그대로 복사해 미완료 항목으로 한 번 등록해요. 반복 설정과 완료 기록은 복사하지 않아요.</p><SchedulePicker name="copyDate" label="복사할 날짜" value={copyDate} onChange={setCopyDate} disabled={busy} />{error && <p role="alert">{error}</p>}<button disabled={busy || !copyDate} type="submit">{busy ? '복사 중…' : '이 날짜에 복사'}</button></form></Modal>}
     {calendarOpen && <CalendarView anchor={calendarAnchor} selected={calendarSelected} today={today} snapshot={snapshot} onMove={(amount) => setCalendarAnchor(changeMonth(calendarAnchor, amount))} onSelect={(date) => { setCalendarSelected(date); setCalendarAnchor(`${date.slice(0, 7)}-01`); }} onToday={() => { setCalendarSelected(today); setCalendarAnchor(`${today.slice(0, 7)}-01`); }} onOpenDate={() => { setSelectedDate(calendarSelected); closeCalendar(); }} onClose={closeCalendar} />}
     {overlay === 'form' && <TodoForm selectedDate={selectedDate} editing={editing} source={source} saving={busy} onCancel={closeOverlay} onSubmit={submit} />}
     {overlay === 'delete' && deleteTarget && <Modal kicker="REPEAT ITEM" title="어디에서 삭제할까요?" compact onClose={closeOverlay}><div className="scope-action-list"><button type="button" disabled={busy} onClick={() => void commitDelete(deleteTarget, 'date').catch(() => undefined)}><strong>오늘만</strong><small>선택한 날짜에서만 숨겨요</small></button><button type="button" disabled={busy} onClick={() => void commitDelete(deleteTarget, 'future').catch(() => undefined)}><strong>오늘 이후</strong><small>이전 기록은 그대로 남겨요</small></button><button type="button" disabled={busy} onClick={() => void commitDelete(deleteTarget, 'all').catch(() => undefined)}><strong>전체 반복</strong><small>모든 날짜에서 삭제해요</small></button></div></Modal>}
     {overlay === 'settings' && <SettingsPanel cloudStatus={cloudStatus} onClose={closeOverlay} onGuide={() => { setOverlay(null); setOnboardingOpen(true); }} onData={() => { setError(''); setOverlay('data'); }} onNotifications={() => { closeOverlay(); showNotice('알림 설정은 다음 단계에서 제공할 예정이에요.'); }} />}
     {overlay === 'data' && <DataPanel busy={busy} error={error} cloudStatus={cloudStatus} onClose={closeOverlay} onExport={() => void exportData()} onImport={(file) => void prepareImport(file)} onReset={() => setOverlay('reset')} />}
     {overlay === 'import' && pendingImport && <Modal kicker="DATA" title="백업으로 복원" compact onClose={closeOverlay}><p className="scope-copy"><strong>{pendingImport.name}</strong>의 데이터로 현재 기기 내용을 모두 바꿉니다. 검증된 파일만 한 번에 반영되며 되돌릴 수 없어요.</p><button className="destructive-button" type="button" disabled={busy} onClick={() => void run(async () => { await restoreBackup(pendingImport.text); showNotice('백업 데이터를 복원했어요.'); }, true).catch(() => undefined)}>현재 데이터 교체</button></Modal>}
-    {overlay === 'reset' && <Modal kicker="DATA" title="모든 데이터 삭제" compact onClose={closeOverlay}><p className="scope-copy">할 일과 반복 수행 기록을 이 기기에서 모두 삭제합니다. 이 작업은 실행 취소할 수 없어요.</p><button className="destructive-button" type="button" disabled={busy} onClick={() => void run(async () => { await clearAllData(); showNotice('모든 데이터를 삭제했어요.'); }, true).catch(() => undefined)}>모든 데이터 삭제</button></Modal>}
+{overlay === 'reset' && <Modal kicker="DATA" title="모든 데이터 삭제" compact onClose={closeOverlay}><p className="scope-copy">할 일, 반복 수행 기록과 메모장을 이 기기에서 모두 삭제합니다. 이 작업은 실행 취소할 수 없어요.</p><button className="destructive-button" type="button" disabled={busy} onClick={() => void run(async () => { await clearAllData(); showNotice('모든 데이터를 삭제했어요.'); }, true).catch(() => undefined)}>모든 데이터 삭제</button></Modal>}
     {receipt && <div className="toast" role="status" aria-live="polite"><span>항목을 삭제했어요.</span><button type="button" onClick={() => void undo().catch(() => undefined)}>실행 취소</button></div>}
     {notice && !receipt && <div className="toast" role="status" aria-live="polite"><span>{notice}</span></div>}
   </>;

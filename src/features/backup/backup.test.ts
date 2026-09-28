@@ -3,7 +3,7 @@ import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 
 import type { TodoBackup } from './backup';
 import { BACKUP_FORMAT, createBackup, parseAndValidateBackup, restoreBackup } from './backup';
-import { closeTodoDatabase, createTodo, DATABASE_NAME, loadSnapshot } from '../../infrastructure/indexed-db/todoRepository';
+import { closeTodoDatabase, createTodo, DATABASE_NAME, loadSnapshot, loadNotebook, saveNote, replaceSnapshot, clearAllData } from '../../infrastructure/indexed-db/todoRepository';
 
 const now = '2026-09-11T01:00:00.000Z';
 
@@ -46,7 +46,36 @@ describe('backup validation and restore', () => {
   it('round-trips a supported backup', async () => {
     await restoreBackup(JSON.stringify(validBackup()));
     const exported = await createBackup({ now: () => new Date(now) });
-    expect(exported).toEqual(validBackup());
+    expect(exported).toEqual({ ...validBackup(), notebook: { schemaVersion: 1, notes: [] } });
+  });
+
+  it('opens a legacy notebook, persists notes, and preserves them during cloud replacement', async () => {
+    await restoreBackup(JSON.stringify(validBackup()));
+    expect((await loadNotebook()).notes).toEqual([]);
+    await saveNote(null, '독립 메모', false, { now: () => new Date(now), uuid: () => 'note-1' });
+    closeTodoDatabase();
+    expect((await loadNotebook()).notes[0].text).toBe('독립 메모');
+    await replaceSnapshot({ todos: [], records: [] });
+    expect((await loadNotebook()).notes).toHaveLength(1);
+    await saveNote('note-1', '수정 메모', true, { now: () => new Date(now), uuid: () => 'unused' });
+    expect((await loadNotebook()).notes[0]).toMatchObject({ text: '수정 메모', deletedAt: now });
+    await clearAllData();
+    expect((await loadNotebook()).notes).toEqual([]);
+  });
+
+  it('round-trips notes and rejects malformed notes before replacing any existing data', async () => {
+    await restoreBackup(JSON.stringify(validBackup()));
+    await saveNote(null, '백업 메모');
+    const backup = await createBackup();
+    const before = await loadNotebook();
+    await expect(restoreBackup(JSON.stringify({ ...backup, notebook: { schemaVersion: 1, notes: [{ text: 42 }] } }))).rejects.toThrow();
+    expect(await loadNotebook()).toEqual(before);
+    expect((await loadSnapshot()).todos).toHaveLength(1);
+    await clearAllData();
+    await restoreBackup(JSON.stringify(backup));
+    expect(await loadNotebook()).toEqual(before);
+    await restoreBackup(JSON.stringify(validBackup()));
+    expect((await loadNotebook()).notes).toEqual([]);
   });
 
   it('adds a category when importing an older backup without one', () => {

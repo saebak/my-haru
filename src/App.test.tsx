@@ -10,6 +10,7 @@ import { completeOnboarding, convertOneTimeToRecurring, createTodo, hasCompleted
 
 vi.mock('./infrastructure/indexed-db/todoRepository', () => ({
   loadSnapshot: vi.fn().mockResolvedValue({ todos: [], records: [] }),
+  loadNotebook: vi.fn().mockResolvedValue({ schemaVersion: 1, notes: [] }), saveNote: vi.fn().mockResolvedValue(undefined),
   hasCompletedOnboarding: vi.fn().mockResolvedValue(true), completeOnboarding: vi.fn().mockResolvedValue(undefined),
   loadManualOrders: vi.fn().mockResolvedValue({}), saveManualOrder: vi.fn().mockResolvedValue(undefined),
   createTodo: vi.fn().mockResolvedValue({}),
@@ -32,6 +33,56 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 describe('App', () => {
+  it('changes one day for horizontal drags but ignores vertical and cancelled gestures', async () => {
+    render(<App />);
+    await screen.findByText('이날의 항목이 없어요');
+    const main = screen.getByRole('main');
+    const selected = () => screen.getByRole('region', { name: '날짜 선택' }).querySelector<HTMLButtonElement>('[aria-pressed="true"]')!.dataset.date!;
+    const start = selected();
+    function pointer(type: string, x: number, y: number) {
+      const event = new MouseEvent(type, { bubbles: true, clientX: x, clientY: y, button: 0 });
+      Object.defineProperties(event, { pointerId: { value: 1 }, isPrimary: { value: true } });
+      fireEvent(main, event);
+    }
+    pointer('pointerdown', 250, 200); pointer('pointerup', 100, 202);
+    expect(selected()).toBe(addDays(start, 1));
+    pointer('pointerdown', 100, 200); pointer('pointerup', 250, 202);
+    expect(selected()).toBe(start);
+    pointer('pointerdown', 250, 200); pointer('pointermove', 245, 260); pointer('pointerup', 100, 280);
+    expect(selected()).toBe(start);
+    pointer('pointerdown', 250, 200); pointer('pointercancel', 200, 200); pointer('pointerup', 100, 200);
+    expect(selected()).toBe(start);
+  });
+
+  it('opens independent notes and asks before discarding unsaved text', async () => {
+    render(<App />);
+    await screen.findByText('이날의 항목이 없어요');
+    fireEvent.click(screen.getByRole('button', { name: '메모' }));
+    await screen.findByText('아직 메모가 없어요');
+    fireEvent.click(screen.getByRole('button', { name: '새 메모 작성' }));
+    fireEvent.change(screen.getByRole('textbox', { name: '새 메모' }), { target: { value: '작성 중인 메모' } });
+    fireEvent.click(screen.getByRole('button', { name: '메모 목록으로 돌아가기' }));
+    expect(screen.getByText('저장하지 않은 내용을 버릴까요?')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '계속 작성' }));
+    expect(screen.getByRole('textbox', { name: '새 메모' })).toHaveValue('작성 중인 메모');
+  });
+
+  it('separates the memo list, detail, and edit screens', async () => {
+    const { loadNotebook } = await import('./infrastructure/indexed-db/todoRepository');
+    vi.mocked(loadNotebook).mockResolvedValueOnce({ schemaVersion: 1, notes: [{
+      id: 'note-1', text: '장보기\n우유와 사과', createdAt: '2026-09-20T00:00:00.000Z', updatedAt: '2026-09-21T00:00:00.000Z', deletedAt: null,
+    }] });
+    render(<App />);
+    await screen.findByText('이날의 항목이 없어요');
+    fireEvent.click(screen.getByRole('button', { name: '메모' }));
+    expect(await screen.findByRole('heading', { name: '저장한 메모' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /장보기/ }));
+    expect(screen.getByRole('heading', { name: '메모 상세' })).toBeInTheDocument();
+    expect(screen.getByText(/우유와 사과/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '메모 수정' }));
+    expect(screen.getByRole('heading', { name: '메모 수정' })).toBeInTheDocument();
+    expect(screen.getByLabelText('메모 내용')).toHaveValue('장보기\n우유와 사과');
+  });
   it('shows local data before cloud initialization finishes', async () => {
     vi.mocked(initializeCloudSync).mockImplementationOnce(() => new Promise(() => undefined));
 
@@ -227,12 +278,32 @@ describe('App', () => {
     });
     const { container } = render(<App />);
     expect(await screen.findByText('디자인 시안 피드백 보내기')).toBeInTheDocument();
+    expect([...container.querySelectorAll('.swipe-item')].map(row => row.textContent)).toEqual(expect.arrayContaining([
+      expect.stringContaining('디자인 시안 피드백 보내기'), expect.stringContaining('완료된 항목'), expect.stringContaining('아직 할 항목'),
+    ]));
+    expect([...container.querySelectorAll('.swipe-item')][0]).toHaveTextContent('디자인 시안 피드백 보내기');
     expect(screen.getAllByText('TODO')).toHaveLength(3);
     expect(container.querySelector('.priority-mark.high')).toHaveTextContent('중요');
     expect(screen.queryByText('시간 없음')).not.toBeInTheDocument();
     expect(screen.getByText('✓ 완료됨')).toBeInTheDocument();
     expect(screen.getByLabelText('완료된 항목, 완료됨')).toHaveClass('is-done');
     expect(container.querySelector('.swipe-item > .item-card .drag-handle')).toBeInTheDocument();
+    const detailOpener = screen.getByRole('button', { name: '디자인 시안 피드백 보내기 상세보기' });
+    fireEvent.click(detailOpener);
+    expect(screen.getByRole('dialog')).toHaveTextContent('확인한 내용만 간단히 전달');
+    expect(screen.getByRole('dialog')).toHaveTextContent('11:00');
+    expect(within(screen.getByRole('dialog')).queryByRole('textbox')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '복사' }));
+    expect(screen.getByRole('button', { name: /복사할 날짜/ })).toHaveTextContent(new Intl.DateTimeFormat('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' }).format(new Date(`${today}T12:00:00`)));
+    fireEvent.click(screen.getByRole('button', { name: '닫기' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    await waitFor(() => expect(detailOpener).toHaveFocus());
+    fireEvent.click(detailOpener);
+    fireEvent.click(screen.getByRole('button', { name: '복사' }));
+    fireEvent.click(screen.getByRole('button', { name: '이 날짜에 복사' }));
+    await waitFor(() => expect(createTodo).toHaveBeenCalledWith(expect.objectContaining({ type: 'one_time', title: '디자인 시안 피드백 보내기', memo: '확인한 내용만 간단히 전달', dueDate: today, dueTime: '11:00', priority: 'high' })));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    await waitFor(() => expect(detailOpener).toHaveFocus());
     fireEvent.click(screen.getByRole('button', { name: '디자인 시안 피드백 보내기 완료' }));
     await waitFor(() => expect(setOneTimeStatus).toHaveBeenCalledWith('todo-1', 'completed'));
     expect(container.querySelector('.toast')).not.toBeInTheDocument();
@@ -256,13 +327,28 @@ describe('App', () => {
       records: [],
     });
 
-    render(<App />);
+    const { container } = render(<App />);
     await screen.findByText('물 마시기');
 
     expect(screen.getByText('ROUTINE')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '수정', hidden: true })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '삭제', hidden: true })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /건너뜀/, hidden: true })).not.toBeInTheDocument();
+    const card = screen.getByLabelText('물 마시기');
+    const row = container.querySelector<HTMLElement>('.swipe-item')!;
+    function pointer(type: string, x: number, y: number, pointerId = 7) {
+      const event = new MouseEvent(type, { bubbles: true, clientX: x, clientY: y, button: 0 });
+      Object.defineProperties(event, { pointerId: { value: pointerId }, isPrimary: { value: true } });
+      fireEvent(card, event);
+    }
+    pointer('pointerdown', 250, 100); pointer('pointermove', 205, 102);
+    expect(row).toHaveClass('is-swiping');
+    pointer('pointercancel', 205, 102);
+    expect(row).not.toHaveClass('is-swiping');
+    expect(card).not.toHaveStyle({ transform: expect.stringContaining('translateX') });
+    pointer('pointerdown', 250, 100); pointer('pointermove', 150, 102); pointer('pointerup', 150, 102);
+    expect(row).toHaveClass('is-open');
+    expect(screen.getByRole('button', { name: '수정' })).toHaveAttribute('tabindex', '0');
   });
 
   it('renders a repeated todo as a todo even without a time', async () => {

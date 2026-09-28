@@ -14,9 +14,9 @@ function pickerDate(value: string, time: boolean): Date | null {
   return new Date(year, month - 1, day, 12);
 }
 
-export function SchedulePicker({ name, label, value, onChange, time = false, optional = false, min }: {
+export function SchedulePicker({ name, label, value, onChange, time = false, optional = false, min, disabled = false }: {
   name: string; label: string; value: string; onChange: (value: string) => void;
-  time?: boolean; optional?: boolean; min?: string;
+  time?: boolean; optional?: boolean; min?: string; disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -31,7 +31,7 @@ export function SchedulePicker({ name, label, value, onChange, time = false, opt
   return <div className="schedule-field">
     <span className="field-label" id={`${id}-label`}>{label}{optional && <em> 선택</em>}</span>
     <input type="hidden" name={name} value={value} />
-    <button ref={trigger} className="schedule-trigger" type="button" aria-labelledby={`${id}-label ${id}-value`} aria-expanded={open} aria-controls={`${id}-panel`} onClick={() => setOpen(!open)}>
+    <button ref={trigger} className="schedule-trigger" type="button" disabled={disabled} aria-labelledby={`${id}-label ${id}-value`} aria-expanded={open} aria-controls={`${id}-panel`} onClick={() => setOpen(!open)}>
       <span id={`${id}-value`}>{selected ? time ? value : new Intl.DateTimeFormat('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' }).format(selected) : time ? '시간 없음' : '종료일 없음'}</span><span aria-hidden="true">{time ? '◷' : '▦'}</span>
     </button>
     {open && <div id={`${id}-panel`} className={`schedule-panel ${time ? 'time-panel' : ''}`} onKeyDown={(event) => { if (event.key === 'Escape') { event.stopPropagation(); setOpen(false); trigger.current?.focus(); } }}>

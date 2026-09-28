@@ -1,4 +1,5 @@
 import { addDays, parseDate } from '../../domain/todos/date';
+import { emptyNotebook, validateNotebook, type Notebook } from '../../domain/notes';
 import { occursOn, resolveTodoCategory, TodoError, validateTodo } from '../../domain/todos/todoDomain';
 import type {
   CreateTodoInput, DeleteReceipt, DisplayTodo, RecurringPatch, RepositoryDependencies,
@@ -459,7 +460,7 @@ export async function updateRecurring(
         ...active, ...patch, id: deps.uuid(), revision: maxRevision + 1, repeatStartDate: targetDate,
         category: patch.category ?? resolveTodoCategory(active),
         repeatWeekdays: [...patch.repeatWeekdays].sort((a, b) => a - b), title: patch.title.trim(), memo: patch.memo.trim(),
-        dueTime: patch.dueTime || null, createdAt: timestamp, updatedAt: timestamp, deletedAt: null,
+        dueTime: patch.dueTime || null, createdAt: active.createdAt, updatedAt: timestamp, deletedAt: null,
       };
       validateTodo(next);
       todoStore.add(next);
@@ -559,7 +560,34 @@ export async function softDeleteCompleted(deps = defaults): Promise<DeleteReceip
   }
 }
 
-export async function replaceSnapshot(snapshot: { todos: TodoData[]; records: TodoRecordData[] }): Promise<void> {
+export async function loadNotebook(): Promise<Notebook> {
+  const db = await openTodoDatabase();
+  const tx = db.transaction(META_STORE, 'readonly');
+  const entry = await requestResult(tx.objectStore(META_STORE).get('notebook'));
+  await transactionDone(tx);
+  const book: unknown = entry?.value ?? emptyNotebook();
+  validateNotebook(book);
+  return book;
+}
+
+export async function saveNote(id: string | null, text: string, deleted = false, deps = defaults): Promise<void> {
+  const db = await openTodoDatabase();
+  const tx = db.transaction(META_STORE, 'readwrite');
+  const store = tx.objectStore(META_STORE);
+  const entry = await requestResult(store.get('notebook'));
+  const book: Notebook = entry?.value ?? emptyNotebook();
+  validateNotebook(book);
+  const previous = book.notes.find(note => note.id === id);
+  const timestamp = deps.now().toISOString();
+  const note = { id: previous?.id ?? deps.uuid(), text: text.trim(), createdAt: previous?.createdAt ?? timestamp, updatedAt: timestamp, deletedAt: deleted ? timestamp : null };
+  const next: Notebook = { schemaVersion: 1, notes: [...book.notes.filter(n => n.id !== note.id), note] };
+  validateNotebook(next);
+  store.put({ key: 'notebook', value: next });
+  await transactionDone(tx);
+}
+
+export async function replaceSnapshot(snapshot: { todos: TodoData[]; records: TodoRecordData[] }, notebook?: Notebook): Promise<void> {
+  if (notebook) validateNotebook(notebook);
   try {
     const database = await openTodoDatabase();
     const transaction = database.transaction([TODO_STORE, RECORD_STORE, META_STORE], 'readwrite');
@@ -569,6 +597,7 @@ export async function replaceSnapshot(snapshot: { todos: TodoData[]; records: To
     recordStore.clear();
     snapshot.todos.forEach((todo) => todoStore.put(todo));
     snapshot.records.forEach((record) => recordStore.put(record));
+    if (notebook) transaction.objectStore(META_STORE).put({ key: 'notebook', value: notebook });
     transaction.objectStore(META_STORE).put({ key: 'schemaVersion', value: DATABASE_VERSION });
     await transactionDone(transaction);
   } catch (error) {
@@ -577,5 +606,5 @@ export async function replaceSnapshot(snapshot: { todos: TodoData[]; records: To
 }
 
 export async function clearAllData(): Promise<void> {
-  return replaceSnapshot({ todos: [], records: [] });
+  return replaceSnapshot({ todos: [], records: [] }, emptyNotebook());
 }

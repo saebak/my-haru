@@ -120,6 +120,8 @@ describe('IndexedDB todo repository', () => {
     expect(revisions).toHaveLength(2);
     expect(revisions[0].repeatEndDate).toBe('2026-09-10');
     expect(revisions[1]).toMatchObject({ revision: 2, title: '산책', repeatStartDate: '2026-09-11' });
+    expect(revisions[1].createdAt).toBe(todo.createdAt);
+    expect(revisions[1].updatedAt).toBe('2026-09-11T01:00:00.000Z');
     expect(snapshot.records[0]).toMatchObject({ targetDate: '2026-09-10', status: 'completed', deletedAt: null });
   });
 

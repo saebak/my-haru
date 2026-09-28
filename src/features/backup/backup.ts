@@ -1,7 +1,8 @@
 import { parseDate } from '../../domain/todos/date';
+import { emptyNotebook, validateNotebook, type Notebook } from '../../domain/notes';
 import { occursOn, resolveTodoCategory, TodoError, validateTodo } from '../../domain/todos/todoDomain';
 import type { RepositoryDependencies, TodoData, TodoOverrides, TodoRecordData } from '../../domain/todos/types';
-import { DATABASE_VERSION, loadSnapshot, replaceSnapshot } from '../../infrastructure/indexed-db/todoRepository';
+import { DATABASE_VERSION, loadSnapshot, loadNotebook, replaceSnapshot } from '../../infrastructure/indexed-db/todoRepository';
 
 export const BACKUP_FORMAT = 'my-daily-todo-backup';
 export const MAX_BACKUP_BYTES = 5 * 1024 * 1024;
@@ -14,6 +15,7 @@ export type TodoBackup = {
   exportedAt: string;
   timezone: 'Asia/Seoul';
   data: { todos: TodoData[]; records: TodoRecordData[] };
+  notebook?: Notebook;
 };
 
 function invalid(message: string): never {
@@ -122,15 +124,16 @@ export function parseAndValidateBackup(text: string): TodoBackup {
   const todos = value.data.todos.map(readTodo);
   const records = value.data.records.map(readRecord);
   validateRelations(todos, records);
-  return { format: BACKUP_FORMAT, schemaVersion: DATABASE_VERSION, exportedAt: value.exportedAt, timezone: 'Asia/Seoul', data: { todos, records } };
+  if (value.notebook !== undefined) validateNotebook(value.notebook);
+  return { format: BACKUP_FORMAT, schemaVersion: DATABASE_VERSION, exportedAt: value.exportedAt, timezone: 'Asia/Seoul', data: { todos, records }, ...(value.notebook !== undefined ? { notebook: value.notebook } : {}) };
 }
 
 export async function createBackup(deps: Pick<RepositoryDependencies, 'now'> = { now: () => new Date() }): Promise<TodoBackup> {
   const snapshot = await loadSnapshot();
-  return { format: BACKUP_FORMAT, schemaVersion: DATABASE_VERSION, exportedAt: deps.now().toISOString(), timezone: 'Asia/Seoul', data: snapshot };
+  return { format: BACKUP_FORMAT, schemaVersion: DATABASE_VERSION, exportedAt: deps.now().toISOString(), timezone: 'Asia/Seoul', data: snapshot, notebook: await loadNotebook() };
 }
 
 export async function restoreBackup(text: string): Promise<void> {
   const backup = parseAndValidateBackup(text);
-  await replaceSnapshot(backup.data);
+  await replaceSnapshot(backup.data, backup.notebook ?? emptyNotebook());
 }

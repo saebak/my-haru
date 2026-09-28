@@ -233,3 +233,72 @@ button:focus-visible, .react-datepicker__day:focus-visible, .react-datepicker__t
 .completion-badge { display: inline-flex; align-items: center; min-height: 22px; padding: 2px 7px; border-radius: 99px; background: #deefc8; color: #47741d !important; font-size: .68rem; font-weight: 850; text-decoration: none; }
 @media (prefers-reduced-motion: reduce) { .date-navigator .week-strip.slide-previous, .date-navigator .week-strip.slide-next { animation: none; } .drag-overlay { transform: none; } }
 @media (max-width: 370px) { .date-priority-row { grid-template-columns: 1fr; } }
+.app-shell { touch-action: pan-y pinch-zoom; position: relative; }
+.swipe-item { background: transparent; }
+.swipe-item.is-open, .swipe-item.is-swiping { background: linear-gradient(90deg, transparent calc(100% - 112px), #899183 calc(100% - 112px), #899183 calc(100% - 56px), var(--danger) calc(100% - 56px)); }
+.swipe-actions { top: 0; right: 0; bottom: 0; border-radius: 18px; opacity: 0; transform: translateX(12px); transition: opacity .18s ease, transform .18s ease; }
+.swipe-item.is-open .swipe-actions, .swipe-item.is-swiping .swipe-actions { opacity: 1; transform: translateX(0); }
+.swipe-actions button { min-height: 100%; transition: filter .14s ease, transform .14s ease; }
+.swipe-actions button:active { filter: brightness(.92); transform: scale(.97); }
+.swipe-item .item-card { will-change: transform; box-shadow: 0 3px 12px rgba(49, 63, 42, .04); }
+.swipe-item.is-open .item-card { box-shadow: 0 7px 18px rgba(49, 63, 42, .1); }
+.swipe-item:focus-within { outline: none; }
+.item-detail-button { border: 0; background: transparent; padding: 0; text-align: left; color: inherit; min-height: 44px; font: inherit; cursor: pointer; }
+.item-detail-button .item-memo { display: block; }
+.app-header { gap: 8px; }
+.header-actions { flex-shrink: 0; }
+.notebook-entry svg { shape-rendering: geometricPrecision; vector-effect: non-scaling-stroke; }
+.header-date { min-width: 0; }
+.header-date { flex-wrap: wrap; }
+.header-date .eyebrow { white-space: normal; overflow-wrap: anywhere; }
+@media (max-width: 370px) { .item-detail-button .item-title-row { flex-wrap: wrap; gap: 4px; } .item-detail-button .item-title { max-width: 100%; } }
+.todo-detail { padding: 18px; border: 1px solid var(--line); border-radius: 18px; background: #f9fbf8; }
+.todo-detail h3 { margin: 0 0 12px; font-size: 1.1rem; overflow-wrap: anywhere; }
+.todo-detail > p:not(.detail-memo) { color: var(--muted); font-size: .8rem; }
+.todo-detail h4 { margin: 24px 0 8px; font-size: .82rem; color: var(--muted); }
+.detail-memo { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.8; }
+.copy-form { display: grid; gap: 14px; }
+.copy-form > p { color: var(--muted); font-size: .82rem; line-height: 1.6; }
+.copy-form > button { min-height: 53px; border: 0; border-radius: 16px; background: var(--primary); color: #fff; font-weight: 800; box-shadow: 0 9px 20px rgba(91,128,42,.2); }
+.notebook-view { overflow-y: auto; padding-bottom: calc(32px + env(safe-area-inset-bottom)); }
+.notebook-header { position: sticky; z-index: 2; top: calc(-22px - env(safe-area-inset-top)); margin: calc(-22px - env(safe-area-inset-top)) -20px 0; padding: calc(22px + env(safe-area-inset-top)) 20px 14px; background: rgba(248,251,245,.94); backdrop-filter: blur(12px); }
+.notebook-back { color: #5f685c; font-size: 1.7rem; }
+.notebook-add, .notebook-edit { background: var(--primary-soft); color: var(--primary-dark); }
+.icon-button.note-save { background: var(--primary); color: #fff; }
+.icon-button:disabled { opacity: .4; cursor: default; }
+.notebook-status { margin: 16px 0 0; color: var(--muted); font-size: .82rem; line-height: 1.6; }
+.notebook-content { margin-top: 24px; }
+.notebook-list-heading { display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: 14px; }
+.notebook-list-heading h2 { margin: 5px 0 0; font-size: 1.18rem; letter-spacing: -.035em; }
+.notebook-list-heading > span { color: var(--muted); font-size: .78rem; font-weight: 700; }
+.notebook-empty { background: rgba(255,255,255,.72); }
+.note-list { display: grid; gap: 9px; }
+.note-preview { display: grid; width: 100%; min-height: 92px; grid-template-columns: 43px minmax(0,1fr) 28px; align-items: center; gap: 11px; padding: 14px; border: 1px solid var(--line); border-radius: 18px; background: #fff; color: var(--ink); text-align: left; font: inherit; box-shadow: 0 3px 12px rgba(49,63,42,.04); }
+.note-preview:active { transform: scale(.99); background: #fbfdf9; }
+.note-preview-icon, .note-detail-icon { display: grid; width: 43px; height: 43px; place-items: center; border-radius: 14px; background: var(--primary-soft); color: var(--primary-dark); }
+.note-preview-icon svg, .note-detail-icon svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.note-preview-body { display: block; min-width: 0; }
+.note-preview-body strong, .note-preview-body > span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.note-preview-body strong { font-size: .92rem; }
+.note-preview-body > span { min-height: 17px; margin-top: 5px; color: #8f978b; font-size: .75rem; }
+.note-preview-body small { display: block; margin-top: 7px; color: var(--muted); font-size: .69rem; }
+.note-preview-arrow { display: grid; width: 28px; height: 44px; place-items: center; color: #a1a99d; }
+.note-preview-arrow svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.note-editor-card, .note-detail-card { margin-top: 24px; padding: 18px; border: 1px solid var(--line); border-radius: 20px; background: #fff; box-shadow: 0 8px 24px rgba(49,63,42,.06); }
+.note-editor-card label { color: var(--primary-dark); font-size: .72rem; font-weight: 850; letter-spacing: .04em; }
+.notebook-view .note-editor-card textarea { display: block; width: 100%; min-height: 330px; margin: 12px 0 0; padding: 0; resize: none; border: 0; background: transparent; color: var(--ink); font-size: .94rem; line-height: 1.8; }
+.notebook-view .note-editor-card textarea:focus { outline: 0; }
+.note-editor-footer { display: flex; min-height: 44px; align-items: center; justify-content: space-between; gap: 12px; border-top: 1px solid var(--line); color: var(--muted); font-size: .7rem; }
+.note-editor-card .primary-button { margin-top: 10px; }
+.note-delete-button { display: inline-flex; min-height: 44px; align-items: center; gap: 6px; padding: 0 10px; border: 0; border-radius: 11px; background: transparent; color: #b33447; font-size: .76rem; font-weight: 800; }
+.note-delete-button svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.note-detail-meta { display: flex; align-items: center; gap: 11px; }
+.note-detail-meta time { display: block; margin-top: 4px; color: var(--muted); font-size: .72rem; }
+.note-detail-card h2 { margin: 24px 0 12px; font-size: 1.12rem; overflow-wrap: anywhere; }
+.note-detail-card > p { min-height: 220px; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; color: #424b3f; font-size: .9rem; line-height: 1.8; }
+.detail-delete { margin-top: 18px; }
+.note-confirm { position: fixed; z-index: 5; right: 20px; bottom: calc(24px + env(safe-area-inset-bottom)); left: 20px; width: min(calc(100% - 40px),390px); margin: 0 auto; padding: 16px; border: 1px solid #dce9d0; border-radius: 18px; background: #f7fbf2; box-shadow: 0 14px 36px rgba(43,57,36,.18); font-size: .82rem; }
+.note-confirm p { margin: 0 0 12px; font-weight: 750; }
+.note-confirm > div { display: flex; justify-content: flex-end; gap: 8px; }
+.note-confirm button { min-height: 44px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 12px; background: #fff; font: inherit; font-weight: 750; }
+.note-confirm button:first-child { color: #b33447; }
