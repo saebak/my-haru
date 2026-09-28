@@ -4,7 +4,7 @@ import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { materializeItems } from '../../domain/todos/todoDomain';
 import type { RepositoryDependencies } from '../../domain/todos/types';
 import {
-  closeTodoDatabase, completeOnboarding, convertOneTimeToRecurring, createTodo, DATABASE_NAME, deleteOccurrence, generateUuid, hasCompletedOnboarding, loadCloudSession, loadManualOrders, loadSnapshot, openTodoDatabase, saveCloudSession, saveManualOrder,
+  closeTodoDatabase, completeOnboarding, convertOneTimeToRecurring, createTodo, DATABASE_NAME, deleteOccurrence, generateUuid, hasCompletedOnboarding, loadCloudSession, loadManualOrders, loadRecurringOrders, loadSnapshot, openTodoDatabase, saveCloudSession, saveManualOrder, saveRecurringOrderFrom,
   setOneTimeStatus, setRecurringStatus, softDeleteCompleted, undoDelete, updateRecurring,
 } from './todoRepository';
 
@@ -62,6 +62,16 @@ describe('IndexedDB todo repository', () => {
     expect(await loadManualOrders()).toEqual({
       '2026-09-11': ['todo-b', 'todo-a'],
       '2026-09-12': ['todo-c'],
+    });
+  });
+
+  it('replaces later recurring order rules when a date order changes', async () => {
+    await saveRecurringOrderFrom('2026-09-11', ['series:a', 'series:b', 'series:a']);
+    await saveRecurringOrderFrom('2026-09-15', ['series:b', 'series:a']);
+    await saveRecurringOrderFrom('2026-09-12', ['series:c', 'todo:not-recurring', 'series:a']);
+    expect(await loadRecurringOrders()).toEqual({
+      '2026-09-11': ['series:a', 'series:b'],
+      '2026-09-12': ['series:c', 'series:a'],
     });
   });
 

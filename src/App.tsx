@@ -58,10 +58,12 @@ import {
   deleteOccurrence,
   hasCompletedOnboarding,
   loadManualOrders,
+  loadRecurringOrders,
   loadSnapshot,
   setOneTimeStatus,
   setRecurringStatus,
   saveManualOrder,
+  saveRecurringOrderFrom,
   undoDelete,
   updateOneTime,
   updateRecurring,
@@ -400,7 +402,7 @@ function TaskCard({
     </div>
 <article className={`item-card ${done ? 'is-done' : ''} ${skipped ? 'is-skipped' : ''}`} aria-label={`${item.title}${done ? ', 완료됨' : ''}`} onKeyDown={event => { if (event.key === 'F10' && event.shiftKey) { event.preventDefault(); onOpen(true); const row = event.currentTarget.parentElement; window.setTimeout(() => row?.querySelector<HTMLButtonElement>('[data-action="edit"]')?.focus(), 0); } }} onPointerDown={startRowSwipe} onPointerMove={event => { const start = rowGesture.current; if (!start || start.pointerId !== event.pointerId) return; const dx = event.clientX - start.x; const dy = event.clientY - start.y; if (Math.abs(dy) > 12 && Math.abs(dy) > Math.abs(dx)) start.vertical = true; if (!start.vertical && Math.abs(dx) > 8) { event.preventDefault(); event.currentTarget.parentElement?.classList.add('is-swiping'); event.currentTarget.style.transform = `translateX(${Math.max(-112, Math.min(0, (open ? -112 : 0) + dx))}px)`; } }} onPointerUp={endRowSwipe} onPointerCancel={cancelRowSwipe} onLostPointerCapture={cancelRowSwipe} onClickCapture={event => { if (rowClick.current && event.detail !== 0) { event.preventDefault(); event.stopPropagation(); rowClick.current = false; } }}>
       <div className="item-icon" aria-hidden="true">{item.emoji || '💡'}</div>
-      <button type="button" className="item-body item-detail-button" aria-label={`${item.title} 상세보기`} onClick={event => onView(event.currentTarget)}><span className="item-title-row"><strong className="item-title">{item.title}</strong><span className={`item-type-tag ${routine ? 'routine' : 'todo'}`}>{routine ? 'ROUTINE' : 'TODO'}</span></span>{item.memo && <span className="item-memo">{item.memo}</span>}<span className="item-meta">{routine ? <span className="streak-badge">🔥 {streakFor(snapshot, item)}일 연속</span> : <span className={`priority-mark ${item.priority}`}>{PRIORITY_LABEL[item.priority]}</span>}{item.dueTime && <span>{item.dueTime}</span>}{skipped && <span>건너뜀</span>}{done && <span className="completion-badge">✓ 완료됨</span>}</span></button>
+      <button type="button" className="item-body item-detail-button" aria-label={`${item.title} 상세보기`} onClick={event => onView(event.currentTarget)}><span className="item-title-row"><strong className="item-title">{item.title}</strong><span className={`item-type-tag ${routine ? 'routine' : 'todo'}`}>{routine ? 'ROUTINE' : 'TODO'}</span></span>{item.memo && <span className="item-memo">{item.memo}</span>}<span className="item-meta">{routine && done && <span className="streak-badge">🔥 {streakFor(snapshot, item)}일 연속</span>}{!routine && <span className={`priority-mark ${item.priority}`}>{PRIORITY_LABEL[item.priority]}</span>}{item.dueTime && <span>{item.dueTime}</span>}{skipped && <span>건너뜀</span>}{done && <span className="completion-badge">✓ 완료됨</span>}</span></button>
       <button className={`item-check ${done ? 'is-done' : ''}`} type="button" data-action="toggle" disabled={busy} onClick={onToggle} aria-label={`${item.title} ${done ? '완료 취소' : '완료'}`}>✓</button>
       <button ref={setActivatorNodeRef} {...dragAttributes} {...dragListeners} className="drag-handle" type="button" data-action="drag" aria-label={`${item.title} 순서 변경`}>⠿</button>
     </article>
@@ -418,15 +420,15 @@ function DraggedTaskCard({ item, snapshot }: { item: DisplayTodo; snapshot: Snap
   const routine = itemType(item) === 'habit';
   return <article className="item-card drag-overlay" aria-hidden="true">
     <div className="item-icon">{item.emoji || '💡'}</div>
-    <div className="item-body"><div className="item-title-row"><strong className="item-title">{item.title}</strong><span className={`item-type-tag ${routine ? 'routine' : 'todo'}`}>{routine ? 'ROUTINE' : 'TODO'}</span></div><div className="item-meta">{routine ? <span className="streak-badge">🔥 {streakFor(snapshot, item)}일 연속</span> : <><span className={`priority-mark ${item.priority}`}>{PRIORITY_LABEL[item.priority]}</span>{item.dueTime && <span>{item.dueTime}</span>}</>}</div></div>
+    <div className="item-body"><div className="item-title-row"><strong className="item-title">{item.title}</strong><span className={`item-type-tag ${routine ? 'routine' : 'todo'}`}>{routine ? 'ROUTINE' : 'TODO'}</span></div><div className="item-meta">{routine && item.status === 'completed' && <span className="streak-badge">🔥 {streakFor(snapshot, item)}일 연속</span>}{!routine && <><span className={`priority-mark ${item.priority}`}>{PRIORITY_LABEL[item.priority]}</span>{item.dueTime && <span>{item.dueTime}</span>}</>}</div></div>
     <span className="drag-overlay-handle" aria-hidden="true">⠿</span>
   </article>;
 }
 
 function agendaDetail(item: DisplayTodo, snapshot: Snapshot) {
   if (itemType(item) === 'habit') {
-    const state = item.status === 'skipped' ? ' · 건너뜀' : item.status === 'completed' ? ' · 완료' : '';
-    return `${streakFor(snapshot, item)}일 연속${state}`;
+    if (item.status === 'completed') return `${streakFor(snapshot, item)}일 연속 · 완료`;
+    return item.status === 'skipped' ? '건너뜀' : '';
   }
   return [item.dueTime, PRIORITY_LABEL[item.priority], item.status === 'completed' ? '완료' : null]
     .filter((value): value is string => Boolean(value))
@@ -579,7 +581,9 @@ function sortDailyItems(items: DisplayTodo[], order: string[]) {
   return [...items].sort((a, b) => {
     const completionOrder = Number(a.status === 'completed') - Number(b.status === 'completed');
     if (completionOrder !== 0) return completionOrder;
-    if (positions.has(a.key) || positions.has(b.key)) return (positions.get(a.key) ?? 9_999) - (positions.get(b.key) ?? 9_999);
+    const aKey = a.seriesId ? `series:${a.seriesId}` : a.key;
+    const bKey = b.seriesId ? `series:${b.seriesId}` : b.key;
+    if (positions.has(a.key) || positions.has(b.key) || positions.has(aKey) || positions.has(bKey)) return (positions.get(a.key) ?? positions.get(aKey) ?? 9_999) - (positions.get(b.key) ?? positions.get(bKey) ?? 9_999);
     return a.createdAt.localeCompare(b.createdAt);
   });
 }
@@ -645,6 +649,8 @@ export default function App() {
   const [notice, setNotice] = useState('');
   const [openItem, setOpenItem] = useState<string | null>(null);
   const [orders, setOrders] = useState<Record<string, string[]>>({});
+  const [recurringOrders, setRecurringOrders] = useState<Record<string, string[]>>({});
+  const [showScrollTop, setShowScrollTop] = useState(false);
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [cloudStatus, setCloudStatus] = useState<CloudSyncStatus>('connecting');
@@ -674,6 +680,12 @@ export default function App() {
   }, [ready]);
   useEffect(() => { void hasCompletedOnboarding().then((completed) => { if (!completed) setOnboardingOpen(true); }).catch(() => undefined); }, []);
   useEffect(() => { void loadManualOrders().then(setOrders).catch(() => undefined); }, []);
+  useEffect(() => { void loadRecurringOrders().then(setRecurringOrders).catch(() => undefined); }, []);
+  useEffect(() => {
+    const update = () => setShowScrollTop(window.scrollY > 280);
+    update(); window.addEventListener('scroll', update, { passive: true });
+    return () => window.removeEventListener('scroll', update);
+  }, []);
   useEffect(() => () => { if (undoTimer.current) window.clearTimeout(undoTimer.current); if (noticeTimer.current) window.clearTimeout(noticeTimer.current); }, []);
   useEffect(() => {
     const closeRows = (event: PointerEvent) => { if (!(event.target as HTMLElement).closest('.swipe-item')) setOpenItem(null); };
@@ -681,7 +693,8 @@ export default function App() {
     return () => document.removeEventListener('pointerdown', closeRows);
   }, []);
 
-  const items = useMemo(() => sortDailyItems(materializeItems(snapshot.todos, snapshot.records, selectedDate), orders[selectedDate] ?? []), [orders, selectedDate, snapshot]);
+  const inheritedRecurringOrder = useMemo(() => Object.entries(recurringOrders).filter(([date]) => date <= selectedDate).sort(([a], [b]) => b.localeCompare(a))[0]?.[1] ?? [], [recurringOrders, selectedDate]);
+  const items = useMemo(() => sortDailyItems(materializeItems(snapshot.todos, snapshot.records, selectedDate), [...(orders[selectedDate] ?? []), ...inheritedRecurringOrder]), [inheritedRecurringOrder, orders, selectedDate, snapshot]);
   const activeItems = items.filter((item) => item.status !== 'skipped');
   const completed = activeItems.filter((item) => item.status === 'completed').length;
   const percent = activeItems.length ? Math.round(completed / activeItems.length * 100) : 0;
@@ -787,10 +800,15 @@ export default function App() {
     if (from < 0 || to < 0) return;
     const nextOrder = arrayMove(current, from, to);
     setOrders((value) => ({ ...value, [selectedDate]: nextOrder }));
-    void saveManualOrder(selectedDate, nextOrder)
+    const currentRecurringOrder = current.map(key => items.find(item => item.key === key)).filter((item): item is DisplayTodo => Boolean(item?.seriesId)).map(item => `series:${item.seriesId}`);
+    const recurringOrder = nextOrder.map(key => items.find(item => item.key === key)).filter((item): item is DisplayTodo => Boolean(item?.seriesId)).map(item => `series:${item.seriesId}`);
+    const recurringChanged = currentRecurringOrder.join('|') !== recurringOrder.join('|');
+    if (recurringChanged) setRecurringOrders(value => ({ ...Object.fromEntries(Object.entries(value).filter(([date]) => date < selectedDate)), [selectedDate]: recurringOrder }));
+    void Promise.all([saveManualOrder(selectedDate, nextOrder), ...(recurringChanged ? [saveRecurringOrderFrom(selectedDate, recurringOrder)] : [])])
       .then(() => showNotice('순서를 변경했어요.'))
       .catch((reason) => {
         setOrders((value) => ({ ...value, [selectedDate]: current }));
+        void loadRecurringOrders().then(setRecurringOrders).catch(() => undefined);
         setError(reason instanceof Error ? reason.message : '순서를 저장하지 못했어요.');
       });
   }
@@ -866,5 +884,6 @@ export default function App() {
 {overlay === 'reset' && <Modal kicker="DATA" title="모든 데이터 삭제" compact onClose={closeOverlay}><p className="scope-copy">할 일, 반복 수행 기록과 메모장을 이 기기에서 모두 삭제합니다. 이 작업은 실행 취소할 수 없어요.</p><button className="destructive-button" type="button" disabled={busy} onClick={() => void run(async () => { await clearAllData(); showNotice('모든 데이터를 삭제했어요.'); }, true).catch(() => undefined)}>모든 데이터 삭제</button></Modal>}
     {receipt && <div className="toast" role="status" aria-live="polite"><span>항목을 삭제했어요.</span><button type="button" onClick={() => void undo().catch(() => undefined)}>실행 취소</button></div>}
     {notice && !receipt && <div className="toast" role="status" aria-live="polite"><span>{notice}</span></div>}
+    {showScrollTop && <button className="scroll-top-button" type="button" aria-label="화면 최상단으로 이동" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>↑</button>}
   </>;
 }

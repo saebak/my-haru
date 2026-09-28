@@ -13,6 +13,7 @@ const RECORD_STORE = 'todoRecords';
 const META_STORE = 'meta';
 const ONBOARDING_META_KEY = 'onboardingCompleted';
 const MANUAL_ORDERS_META_KEY = 'manualOrders';
+const RECURRING_ORDERS_META_KEY = 'recurringOrders';
 const CLOUD_SESSION_META_KEY = 'cloudSession';
 
 export type CloudSession = {
@@ -262,6 +263,40 @@ export async function saveManualOrder(date: string, order: string[]): Promise<vo
       ? entry.value as Record<string, unknown>
       : {};
     store.put({ key: MANUAL_ORDERS_META_KEY, value: { ...current, [date]: [...new Set(order)] } });
+    await transactionDone(transaction);
+  } catch (error) {
+    throw storageError(error);
+  }
+}
+
+export async function loadRecurringOrders(): Promise<Record<string, string[]>> {
+  try {
+    const database = await openTodoDatabase();
+    const transaction = database.transaction(META_STORE, 'readonly');
+    const entry = await requestResult(transaction.objectStore(META_STORE).get(RECURRING_ORDERS_META_KEY)) as { value?: unknown } | undefined;
+    await transactionDone(transaction);
+    if (!entry?.value || typeof entry.value !== 'object' || Array.isArray(entry.value)) return {};
+    return Object.fromEntries(Object.entries(entry.value).filter(([date, order]) =>
+      /^\d{4}-\d{2}-\d{2}$/.test(date) && Array.isArray(order) && order.every((key) => typeof key === 'string' && key.startsWith('series:')),
+    )) as Record<string, string[]>;
+  } catch (error) {
+    throw storageError(error);
+  }
+}
+
+export async function saveRecurringOrderFrom(date: string, order: string[]): Promise<void> {
+  try {
+    parseDate(date);
+    const stableOrder = [...new Set(order.filter(key => key.startsWith('series:')))];
+    const database = await openTodoDatabase();
+    const transaction = database.transaction(META_STORE, 'readwrite');
+    const store = transaction.objectStore(META_STORE);
+    const entry = await requestResult(store.get(RECURRING_ORDERS_META_KEY)) as { value?: unknown } | undefined;
+    const current = entry?.value && typeof entry.value === 'object' && !Array.isArray(entry.value)
+      ? entry.value as Record<string, unknown>
+      : {};
+    const beforeDate = Object.fromEntries(Object.entries(current).filter(([effectiveDate]) => effectiveDate < date));
+    store.put({ key: RECURRING_ORDERS_META_KEY, value: { ...beforeDate, [date]: stableOrder } });
     await transactionDone(transaction);
   } catch (error) {
     throw storageError(error);

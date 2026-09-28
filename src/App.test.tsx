@@ -13,6 +13,7 @@ vi.mock('./infrastructure/indexed-db/todoRepository', () => ({
   loadNotebook: vi.fn().mockResolvedValue({ schemaVersion: 1, notes: [] }), saveNote: vi.fn().mockResolvedValue(undefined),
   hasCompletedOnboarding: vi.fn().mockResolvedValue(true), completeOnboarding: vi.fn().mockResolvedValue(undefined),
   loadManualOrders: vi.fn().mockResolvedValue({}), saveManualOrder: vi.fn().mockResolvedValue(undefined),
+  loadRecurringOrders: vi.fn().mockResolvedValue({}), saveRecurringOrderFrom: vi.fn().mockResolvedValue(undefined),
   createTodo: vi.fn().mockResolvedValue({}),
   convertOneTimeToRecurring: vi.fn(), updateOneTime: vi.fn(), updateRecurring: vi.fn(), setOneTimeStatus: vi.fn(), setRecurringStatus: vi.fn(),
   deleteOccurrence: vi.fn(), undoDelete: vi.fn(), clearAllData: vi.fn(), replaceSnapshot: vi.fn(),
@@ -331,6 +332,7 @@ describe('App', () => {
     await screen.findByText('물 마시기');
 
     expect(screen.getByText('ROUTINE')).toBeInTheDocument();
+    expect(screen.queryByText('🔥 0일 연속')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '수정', hidden: true })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '삭제', hidden: true })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /건너뜀/, hidden: true })).not.toBeInTheDocument();
@@ -349,6 +351,20 @@ describe('App', () => {
     pointer('pointerdown', 250, 100); pointer('pointermove', 150, 102); pointer('pointerup', 150, 102);
     expect(row).toHaveClass('is-open');
     expect(screen.getByRole('button', { name: '수정' })).toHaveAttribute('tabindex', '0');
+  });
+
+  it('shows a compact scroll-to-top button only after scrolling down', async () => {
+    Object.defineProperty(window, 'scrollY', { configurable: true, value: 0 });
+    const scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation(() => undefined);
+    render(<App />);
+    await screen.findByText('이날의 항목이 없어요');
+    expect(screen.queryByRole('button', { name: '화면 최상단으로 이동' })).not.toBeInTheDocument();
+    Object.defineProperty(window, 'scrollY', { configurable: true, value: 500 });
+    fireEvent.scroll(window);
+    const button = await screen.findByRole('button', { name: '화면 최상단으로 이동' });
+    fireEvent.click(button);
+    expect(scrollTo).toHaveBeenCalledWith({ top: 0, behavior: 'smooth' });
+    scrollTo.mockRestore();
   });
 
   it('renders a repeated todo as a todo even without a time', async () => {
