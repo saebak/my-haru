@@ -100,11 +100,13 @@ describe('App', () => {
 
     expect(await screen.findByRole('heading', { name: '오늘 할 일을 가볍게 시작해요' })).toBeInTheDocument();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-    expect(screen.getByLabelText('3단계 중 1단계')).toBeInTheDocument();
+    expect(screen.getByLabelText('4단계 중 1단계')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '다음' }));
     expect(screen.getByRole('heading', { name: '날짜를 고르고 완료를 체크해요' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '다음' }));
-    expect(screen.getByRole('heading', { name: '계획은 이 기기에 저장돼요' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '떠오르는 생각은 메모장에 남겨요' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '다음' }));
+    expect(screen.getByRole('heading', { name: '계획은 먼저 이 기기에 저장돼요' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '시작하기' }));
 
     await waitFor(() => expect(completeOnboarding).toHaveBeenCalledTimes(1));

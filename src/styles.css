@@ -164,6 +164,7 @@ button:disabled { cursor: wait; opacity: .55; }
 }
 .onboarding-visual.is-check { background: linear-gradient(145deg, #edf5ff, #d9e9f8); color: #3e7098; }
 .onboarding-visual.is-local { background: linear-gradient(145deg, #fff6df, #f5e6b8); color: #936f1f; }
+.onboarding-visual.is-note { background: linear-gradient(145deg, #f3edff, #e3d9f5); color: #6a4f98; }
 .onboarding-dot { position: absolute; display: block; border-radius: 50%; background: rgba(255, 255, 255, .72); }
 .onboarding-dot.dot-one { top: 10px; right: 10px; width: 8px; height: 8px; }
 .onboarding-dot.dot-two { bottom: 10px; left: 10px; width: 6px; height: 6px; }
@@ -286,8 +287,8 @@ button:focus-visible, .react-datepicker__day:focus-visible, .react-datepicker__t
 .note-preview-arrow svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .note-editor-card, .note-detail-card { margin-top: 24px; padding: 18px; border: 1px solid var(--line); border-radius: 20px; background: #fff; box-shadow: 0 8px 24px rgba(49,63,42,.06); }
 .note-editor-card label { color: var(--primary-dark); font-size: .72rem; font-weight: 850; letter-spacing: .04em; }
-.notebook-view .note-editor-card textarea { display: block; width: 100%; min-height: 330px; margin: 12px 0 0; padding: 0; resize: none; border: 0; background: transparent; color: var(--ink); font-size: .94rem; line-height: 1.8; }
-.notebook-view .note-editor-card textarea:focus { outline: 0; }
+.notebook-view .note-editor-card textarea { display: block; width: 100%; min-height: 330px; margin: 12px 0 10px; padding: 14px 15px; resize: none; border: 1px solid #e0e5dc; border-radius: 14px; background: #f9fbf8; color: var(--ink); font-size: 1rem; line-height: 1.7; }
+.notebook-view .note-editor-card textarea:focus { outline: 0; border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
 .note-editor-footer { display: flex; min-height: 44px; align-items: center; justify-content: space-between; gap: 12px; border-top: 1px solid var(--line); color: var(--muted); font-size: .7rem; }
 .note-editor-card .primary-button { margin-top: 10px; }
 .note-delete-button { display: inline-flex; min-height: 44px; align-items: center; gap: 6px; padding: 0 10px; border: 0; border-radius: 11px; background: transparent; color: #b33447; font-size: .76rem; font-weight: 800; }
@@ -302,6 +303,6 @@ button:focus-visible, .react-datepicker__day:focus-visible, .react-datepicker__t
 .note-confirm > div { display: flex; justify-content: flex-end; gap: 8px; }
 .note-confirm button { min-height: 44px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 12px; background: #fff; font: inherit; font-weight: 750; }
 .note-confirm button:first-child { color: #b33447; }
-.scroll-top-button { position: fixed; z-index: 32; left: max(14px, calc(50% - 201px)); bottom: calc(18px + env(safe-area-inset-bottom)); display: grid; width: 38px; height: 38px; place-items: center; border: 1px solid #dce6d4; border-radius: 50%; background: rgba(248,251,245,.94); color: var(--primary-dark); font-size: 1rem; font-weight: 900; box-shadow: 0 7px 18px rgba(49,63,42,.14); backdrop-filter: blur(8px); }
+.scroll-top-button { position: fixed; z-index: 32; right: max(14px, calc(50% - 201px)); bottom: calc(18px + env(safe-area-inset-bottom)); display: grid; width: 38px; height: 38px; place-items: center; border: 1px solid #dce6d4; border-radius: 50%; background: rgba(248,251,245,.94); color: var(--primary-dark); font-size: 1rem; font-weight: 900; box-shadow: 0 7px 18px rgba(49,63,42,.14); backdrop-filter: blur(8px); }
 .scroll-top-button:active { transform: translateY(-2px); background: var(--primary-soft); }
 @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
