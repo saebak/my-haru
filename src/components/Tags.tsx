@@ -119,13 +119,15 @@ export function TagField({ book, value, onChange, onCreate, onRename, onDelete, 
       </div>}
       {managing ? <ul className="tag-popover-manage" aria-label="태그 편집">
         {tags.map((tag) => <li key={tag.id} className={`tag-${tag.color}`}>
-          {renaming?.id === tag.id ? <form className="tag-popover-rename" onSubmit={(event) => { event.preventDefault(); void rename(tag.id, renaming.name); }}>
+          {/* 등록·수정 폼 안에 있으므로 중첩 <form>을 쓰지 않는다. 중첩 폼은 브라우저가 바깥 폼을 제출해 페이지가 새로고침됐다. */}
+          {renaming?.id === tag.id ? <div className="tag-popover-rename" role="group" aria-label={`${tag.name} 이름 수정`}>
             <label className="sr-only" htmlFor={`${baseId}-rename`}>{tag.name} 새 이름</label>
             <input id={`${baseId}-rename`} type="text" value={renaming.name} maxLength={TAG_NAME_MAX} autoComplete="off" autoFocus disabled={disabled}
-              onChange={(event) => setRenaming({ id: tag.id, name: event.target.value })} />
-            <button type="submit" className="is-primary" disabled={disabled || !renaming.name.trim()}>저장</button>
+              onChange={(event) => setRenaming({ id: tag.id, name: event.target.value })}
+              onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); if (renaming.name.trim()) void rename(tag.id, renaming.name); } }} />
+            <button type="button" className="is-primary" disabled={disabled || !renaming.name.trim()} onClick={() => void rename(tag.id, renaming.name)}>저장</button>
             <button type="button" onClick={() => setRenaming(null)}>취소</button>
-          </form> : confirmDelete === tag.id ? <div className="tag-popover-confirm" role="group" aria-label={`${tag.name} 삭제 확인`}>
+          </div> : confirmDelete === tag.id ? <div className="tag-popover-confirm" role="group" aria-label={`${tag.name} 삭제 확인`}>
             <p><strong>{tag.name}</strong>을(를) 삭제할까요? 할 일은 남고 태그만 사라져요.</p>
             <div>
               <button type="button" onClick={() => setConfirmDelete(null)}>취소</button>

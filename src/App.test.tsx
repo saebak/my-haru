@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
 import { addDays } from './domain/todos/date';
 import { initializeCloudSync, syncIfConnected } from './infrastructure/sync/cloudSync';
-import { completeOnboarding, convertOneTimeToRecurring, createTodo, hasCompletedOnboarding, loadSnapshot, loadTagBook, setOneTimeStatus, updateTagBook } from './infrastructure/indexed-db/todoRepository';
+import { completeOnboarding, convertOneTimeToRecurring, createTodo, hasCompletedOnboarding, loadSnapshot, loadTagBook, setOneTimeStatus, updateRecurring, updateTagBook } from './infrastructure/indexed-db/todoRepository';
 import { activeTags, addTags, TAG_PRESETS, type TagBook } from './domain/tags';
 import type { TodoData } from './domain/todos/types';
 
@@ -135,6 +135,27 @@ describe('App', () => {
       await waitFor(() => expect(createTodo).toHaveBeenCalledWith(expect.objectContaining({ title: '물 마시기', tagIds: [book.tags[0].id] })));
     });
 
+    it('defaults recurring edits to future scope and shows a short toast when a tag change targets only one day', async () => {
+      book = addTags(book, [TAG_PRESETS[0], TAG_PRESETS[2]], { now: () => new Date(stamp), uuid: () => crypto.randomUUID() }).book;
+      const [health] = book.tags;
+      vi.mocked(loadSnapshot).mockResolvedValue({ todos: [{
+        id: 'h1', type: 'recurring', category: 'habit', seriesId: 's1', revision: 1, title: '스트레칭', memo: '', emoji: '🧘', status: null, priority: 'normal',
+        dueDate: null, dueTime: null, completedAt: null, repeatFrequency: 'daily', repeatInterval: 1, repeatWeekdays: [], repeatStartDate: '2026-01-01',
+        repeatEndDate: null, timezone: 'Asia/Seoul', tagIds: [health.id], createdAt: stamp, updatedAt: stamp, deletedAt: null,
+      }], records: [] });
+      render(<App />);
+      await screen.findByText('스트레칭');
+      fireEvent.click(screen.getByRole('button', { name: '수정', hidden: true }));
+      expect(screen.getByRole('radio', { name: '오늘 이후' })).toBeChecked();
+      fireEvent.click(screen.getByRole('radio', { name: '오늘만' }));
+      fireEvent.click(screen.getByRole('button', { name: '태그 선택 건강관리' }));
+      fireEvent.click(within(screen.getByRole('group', { name: '내 태그' })).getByRole('button', { name: '이직준비' }));
+      fireEvent.click(screen.getByRole('button', { name: '습관 수정' }));
+      expect((await screen.findByText('태그는 "오늘 이후" 또는 "전체 반복"으로 바꿀 수 있어요.')).closest('.toast')).toHaveAttribute('role', 'status');
+      expect(screen.queryByText('반복 항목의 태그는', { exact: false })).not.toBeInTheDocument();
+      expect(updateRecurring).not.toHaveBeenCalled();
+    });
+
     it('renames and deletes tags from the form tag popup', async () => {
       book = addTags(book, [TAG_PRESETS[0], TAG_PRESETS[2]], { now: () => new Date(stamp), uuid: () => crypto.randomUUID() }).book;
       render(<App />);
@@ -142,10 +163,24 @@ describe('App', () => {
       fireEvent.click(screen.getByRole('button', { name: '추가' }));
       fireEvent.click(screen.getByRole('button', { name: '태그 선택 태그 없음' }));
       fireEvent.click(screen.getByRole('button', { name: '편집' }));
+      // 이름 수정 영역이 바깥 등록 폼을 제출하면 실제 브라우저에서 페이지가 새로고침됐다.
+      const outerSubmit = vi.fn((event: Event) => event.preventDefault());
+      screen.getByRole('dialog', { name: '무엇을 시작할까요?' }).querySelector('form')!.addEventListener('submit', outerSubmit);
       fireEvent.click(screen.getByRole('button', { name: '건강관리 이름 수정' }));
+      expect(screen.getByRole('group', { name: '건강관리 이름 수정' }).closest('form')).toBe(screen.getByRole('dialog', { name: '무엇을 시작할까요?' }).querySelector('form'));
       fireEvent.change(screen.getByLabelText('건강관리 새 이름'), { target: { value: '운동' } });
       fireEvent.click(screen.getByRole('button', { name: '저장' }));
       expect(await screen.findByRole('button', { name: '운동 이름 수정' })).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: '운동 이름 수정' }));
+      fireEvent.change(screen.getByLabelText('운동 새 이름'), { target: { value: '헬스' } });
+      fireEvent.keyDown(screen.getByLabelText('운동 새 이름'), { key: 'Enter' });
+      expect(await screen.findByRole('button', { name: '헬스 이름 수정' })).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: '헬스 이름 수정' }));
+      fireEvent.change(screen.getByLabelText('헬스 새 이름'), { target: { value: '운동' } });
+      fireEvent.click(screen.getByRole('button', { name: '저장' }));
+      expect(await screen.findByRole('button', { name: '운동 이름 수정' })).toBeInTheDocument();
+      expect(outerSubmit).not.toHaveBeenCalled();
+      expect(createTodo).not.toHaveBeenCalled();
       fireEvent.click(screen.getByRole('button', { name: '이직준비 삭제' }));
       fireEvent.click(within(screen.getByRole('group', { name: '이직준비 삭제 확인' })).getByRole('button', { name: '삭제' }));
       await waitFor(() => expect(screen.queryByRole('button', { name: '이직준비 이름 수정' })).not.toBeInTheDocument());

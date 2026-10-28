@@ -194,6 +194,7 @@ function TodoForm({
   tagBook,
   defaultTagId,
   onCreateTag,
+  onNotice,
   onRenameTag,
   onDeleteTag,
   onCancel,
@@ -206,6 +207,7 @@ function TodoForm({
   tagBook: TagBook;
   defaultTagId: string;
   onCreateTag: (input: TagInput) => Promise<Tag>;
+  onNotice: (message: string, duration?: number) => void;
   onRenameTag: (id: string, name: string) => Promise<unknown>;
   onDeleteTag: (id: string) => Promise<unknown>;
   onCancel: () => void;
@@ -221,7 +223,8 @@ function TodoForm({
   const [repeatUntil, setRepeatUntil] = useState(source?.repeatEndDate ?? '');
   const [repeatFrequency, setRepeatFrequency] = useState<RepeatFrequency>(source?.repeatFrequency ?? 'daily');
   const [repeatInterval, setRepeatInterval] = useState(source?.repeatInterval ?? 2);
-  const [scope, setScope] = useState<EditScope>('date');
+  // 반복 항목은 '오늘 이후'를 기본 범위로 한다. 태그처럼 반복 정의에 속한 값을 바꿔도 바로 저장되게 하기 위해서다.
+  const [scope, setScope] = useState<EditScope>('future');
   const [formError, setFormError] = useState('');
   // 수정 시 원래 태그가 삭제됐으면 선택 없음으로 보여주되, 사용자가 바꾸지 않으면 저장값을 건드리지 않는다.
   const originalTagId = editing?.tagIds.find((id) => activeTags(tagBook).some((tag) => tag.id === id)) ?? '';
@@ -265,7 +268,8 @@ function TodoForm({
       ...(tagChanged ? { tagIds: tagId ? [tagId] : [] } : {}),
     };
     if (editing?.type === 'recurring' && scope === 'date' && tagChanged) {
-      setFormError('반복 항목의 태그는 "오늘 이후" 또는 "전체 반복"으로 바꿀 수 있어요.');
+      // 폼 맨 아래 오류 문구는 스크롤해야 보여서 잠깐 뜨는 토스트로 알린다.
+      onNotice('태그는 "오늘 이후" 또는 "전체 반복"으로 바꿀 수 있어요.', 2_000);
       return;
     }
     try {
@@ -802,10 +806,10 @@ export default function App() {
       return Math.abs(offset) === 4 ? addDays(center, Math.sign(offset) * 7) : date;
     });
   }
-  function showNotice(message: string) {
+  function showNotice(message: string, duration = 3_500) {
     setNotice(message);
     if (noticeTimer.current) window.clearTimeout(noticeTimer.current);
-    noticeTimer.current = window.setTimeout(() => setNotice(''), 3_500);
+    noticeTimer.current = window.setTimeout(() => setNotice(''), duration);
   }
   function closeOverlay() {
     setOverlay(null); setEditing(null); setViewing(null); setDeleteTarget(null); setPendingImport(null);
@@ -995,7 +999,7 @@ export default function App() {
     {overlay === 'detail' && viewing && <Modal kicker={viewing.category === 'habit' ? 'ROUTINE' : 'TODO'} title="상세보기" onClose={closeOverlay} headerAction={<button className="icon-button" type="button" aria-label="복사" title="복사" onClick={() => { setCopyDate(viewing.targetDate); setError(''); setOverlay('copy'); }}><ActionIcon name="copy" /></button>}><div className="todo-detail"><h3>{viewing.emoji} {viewing.title}</h3><p>{formatHeading(viewing.targetDate)}{viewing.dueTime ? ` · ${viewing.dueTime}` : ''}</p>{tagOf(viewing) && <div className="detail-tag"><TagChip tag={tagOf(viewing)!} /></div>}<h4>메모</h4><p className="detail-memo">{viewing.memo || '작성된 메모가 없어요.'}</p></div></Modal>}
 {overlay === 'copy' && viewing && <Modal kicker="COPY" title="다른 날짜로 복사" compact onClose={closeOverlay}><form className="copy-form" onSubmit={event => { event.preventDefault(); const targetDate = String(new FormData(event.currentTarget).get('copyDate')); void run(async () => { await createTodo({ type: 'one_time', category: viewing.category, title: viewing.title, memo: viewing.memo, emoji: viewing.emoji, priority: viewing.priority, dueTime: viewing.dueTime, dueDate: targetDate, tagIds: viewing.tagIds }); goToDate(targetDate); showNotice('선택한 날짜에 복사했어요.'); }, true).catch(() => undefined); }}><p>내용과 시간을 그대로 복사해 미완료 항목으로 한 번 등록해요. 반복 설정과 완료 기록은 복사하지 않아요.</p><SchedulePicker name="copyDate" label="복사할 날짜" value={copyDate} onChange={setCopyDate} disabled={busy} />{error && <p role="alert">{error}</p>}<button disabled={busy || !copyDate} type="submit">{busy ? '복사 중…' : '이 날짜에 복사'}</button></form></Modal>}
     {calendarOpen && <CalendarView anchor={calendarAnchor} selected={calendarSelected} today={today} snapshot={snapshot} onMove={(amount) => setCalendarAnchor(changeMonth(calendarAnchor, amount))} onSelect={(date) => { setCalendarSelected(date); setCalendarAnchor(`${date.slice(0, 7)}-01`); }} onToday={() => { setCalendarSelected(today); setCalendarAnchor(`${today.slice(0, 7)}-01`); }} onOpenDate={() => { goToDate(calendarSelected); closeCalendar(); }} onClose={closeCalendar} />}
-    {overlay === 'form' && <TodoForm selectedDate={selectedDate} editing={editing} source={source} saving={busy} tagBook={tagBook} defaultTagId={activeFilter ?? ''} onCreateTag={createTag} onRenameTag={(id, name) => editTags((book) => updateTag(book, id, { name, color: activeTags(book).find((tag) => tag.id === id)?.color ?? 'gray' }, tagDeps))} onDeleteTag={(id) => editTags((book) => deleteTag(book, id, tagDeps))} onCancel={closeOverlay} onSubmit={submit} />}
+    {overlay === 'form' && <TodoForm selectedDate={selectedDate} editing={editing} source={source} saving={busy} tagBook={tagBook} defaultTagId={activeFilter ?? ''} onCreateTag={createTag} onNotice={showNotice} onRenameTag={(id, name) => editTags((book) => updateTag(book, id, { name, color: activeTags(book).find((tag) => tag.id === id)?.color ?? 'gray' }, tagDeps))} onDeleteTag={(id) => editTags((book) => deleteTag(book, id, tagDeps))} onCancel={closeOverlay} onSubmit={submit} />}
     {overlay === 'delete' && deleteTarget && <Modal kicker="REPEAT ITEM" title="어디에서 삭제할까요?" compact onClose={closeOverlay}><div className="scope-action-list"><button type="button" disabled={busy} onClick={() => void commitDelete(deleteTarget, 'date').catch(() => undefined)}><strong>오늘만</strong><small>선택한 날짜에서만 숨겨요</small></button><button type="button" disabled={busy} onClick={() => void commitDelete(deleteTarget, 'future').catch(() => undefined)}><strong>오늘 이후</strong><small>이전 기록은 그대로 남겨요</small></button><button type="button" disabled={busy} onClick={() => void commitDelete(deleteTarget, 'all').catch(() => undefined)}><strong>전체 반복</strong><small>모든 날짜에서 삭제해요</small></button></div></Modal>}
     {overlay === 'settings' && <SettingsPanel cloudStatus={cloudStatus} tagCount={tags.length} onTags={() => setOverlay('tags')} onClose={closeOverlay} onGuide={() => { setOverlay(null); setOnboardingOpen(true); }} onData={() => { setError(''); setOverlay('data'); }} onNotifications={() => { closeOverlay(); showNotice('알림 설정은 다음 단계에서 제공할 예정이에요.'); }} />}
     {overlay === 'tags' && <Modal kicker="TAGS" title="태그 관리" compact onClose={closeOverlay}><TagManager book={tagBook} busy={busy}
