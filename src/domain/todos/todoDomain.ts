@@ -24,6 +24,8 @@ export class TodoError extends Error {
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
+/** 저장 형식이 허용하는 최대 태그 수. 화면은 현재 1개만 고르게 한다. */
+export const MAX_TAGS_PER_TODO = 5;
 
 export function resolveTodoCategory(todo: Pick<TodoData, 'type' | 'category' | 'emoji' | 'dueTime'>): ItemCategory {
   if (todo.category === 'todo' || todo.category === 'habit') return todo.category;
@@ -39,6 +41,10 @@ export function validateTodo(todo: TodoData): void {
   }
   if (!todo.title.trim() || todo.title.trim().length > 120) {
     throw new TodoError('VALIDATION', '제목은 1~120자로 입력해 주세요.', false, 'title');
+  }
+  if (todo.tagIds !== undefined && (!Array.isArray(todo.tagIds) || todo.tagIds.length > MAX_TAGS_PER_TODO
+    || todo.tagIds.some((id) => typeof id !== 'string' || !id) || new Set(todo.tagIds).size !== todo.tagIds.length)) {
+    throw new TodoError('VALIDATION', '태그 정보가 올바르지 않아요.', false);
   }
   if (todo.memo.length > 2_000) {
     throw new TodoError('VALIDATION', '메모는 2,000자 이하로 입력해 주세요.', false, 'memo');
@@ -117,7 +123,7 @@ export function materializeItems(todos: TodoData[], records: TodoRecordData[], d
         key: todo.id, todoId: todo.id, type: todo.type, category: resolveTodoCategory(todo), seriesId: null, targetDate: date,
         title: todo.title, memo: todo.memo, emoji: todo.emoji, priority: todo.priority,
         dueTime: todo.dueTime, status: todo.status ?? 'pending', completedAt: todo.completedAt,
-        createdAt: todo.createdAt, revision: null,
+        tagIds: todo.tagIds ?? [], createdAt: todo.createdAt, revision: null,
       });
       continue;
     }
@@ -131,7 +137,7 @@ export function materializeItems(todos: TodoData[], records: TodoRecordData[], d
       priority: record?.overrides?.priority ?? todo.priority,
       dueTime: record?.overrides && 'dueTime' in record.overrides ? record.overrides.dueTime ?? null : todo.dueTime,
       status: record?.status ?? 'pending', completedAt: record?.completedAt ?? null,
-      createdAt: todo.createdAt, revision: todo.revision,
+      tagIds: todo.tagIds ?? [], createdAt: todo.createdAt, revision: todo.revision,
     });
   }
   return items;

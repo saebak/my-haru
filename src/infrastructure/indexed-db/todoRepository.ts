@@ -1,5 +1,6 @@
 import { addDays, parseDate } from '../../domain/todos/date';
 import { emptyNotebook, validateNotebook, type Notebook } from '../../domain/notes';
+import { emptyTagBook, validateTagBook, type TagBook } from '../../domain/tags';
 import { occursOn, resolveTodoCategory, TodoError, validateTodo } from '../../domain/todos/todoDomain';
 import type {
   CreateTodoInput, DeleteReceipt, DisplayTodo, RecurringPatch, RepositoryDependencies,
@@ -15,6 +16,7 @@ const ONBOARDING_META_KEY = 'onboardingCompleted';
 const MANUAL_ORDERS_META_KEY = 'manualOrders';
 const RECURRING_ORDERS_META_KEY = 'recurringOrders';
 const CLOUD_SESSION_META_KEY = 'cloudSession';
+const TAGS_META_KEY = 'tags';
 
 export type CloudSession = {
   accountId: string;
@@ -306,7 +308,7 @@ export async function saveRecurringOrderFrom(date: string, order: string[]): Pro
 function makeTodo(input: CreateTodoInput, deps: RepositoryDependencies): TodoData {
   const timestamp = deps.now().toISOString();
   const base = {
-    id: deps.uuid(), title: input.title.trim(), memo: input.memo.trim(), emoji: input.emoji || '💡',
+    id: deps.uuid(), title: input.title.trim(), memo: input.memo.trim(), emoji: input.emoji || '💡', tagIds: input.tagIds ?? [],
     category: input.category ?? (input.type === 'one_time' ? 'todo' : undefined),
     priority: input.priority, dueTime: input.dueTime || null, createdAt: timestamp, updatedAt: timestamp,
     deletedAt: null,
@@ -397,6 +399,7 @@ export async function convertOneTimeToRecurring(
       repeatStartDate: input.repeatStartDate,
       repeatEndDate: input.repeatEndDate,
       timezone: 'Asia/Seoul',
+      tagIds: input.tagIds ?? todo.tagIds ?? [],
       updatedAt: timestamp,
     };
     validateTodo(converted);
@@ -473,6 +476,10 @@ export async function updateRecurring(
     if (!active) throw new TodoError('NOT_FOUND', '이 날짜의 반복 할 일을 찾을 수 없어요.', false);
     const timestamp = deps.now().toISOString();
     if (scope === 'date') {
+      // 태그는 반복 정의에 속하므로 날짜별 override로 저장하지 않는다(TAG-006).
+      if (patch.tagIds && patch.tagIds.join('|') !== (active.tagIds ?? []).join('|')) {
+        throw new TodoError('VALIDATION', '반복 항목의 태그는 "오늘 이후" 또는 "전체 반복"으로 바꿀 수 있어요.', false);
+      }
       const current = await findRecord(transaction, seriesId, targetDate);
       const candidate = { ...active, title: patch.title.trim(), memo: patch.memo.trim(), priority: patch.priority, dueTime: patch.dueTime || null, category: patch.category ?? resolveTodoCategory(active) };
       validateTodo(candidate);
@@ -621,8 +628,49 @@ export async function saveNote(id: string | null, text: string, deleted = false,
   await transactionDone(tx);
 }
 
-export async function replaceSnapshot(snapshot: { todos: TodoData[]; records: TodoRecordData[] }, notebook?: Notebook): Promise<void> {
+export async function loadTagBook(): Promise<TagBook> {
+  try {
+    const database = await openTodoDatabase();
+    const transaction = database.transaction(META_STORE, 'readonly');
+    const entry = await requestResult(transaction.objectStore(META_STORE).get(TAGS_META_KEY)) as { value?: unknown } | undefined;
+    await transactionDone(transaction);
+    const book: unknown = entry?.value ?? emptyTagBook();
+    validateTagBook(book);
+    return book;
+  } catch (error) {
+    throw storageError(error);
+  }
+}
+
+/** 현재 태그 문서를 읽고 바꾼 결과를 같은 트랜잭션에서 저장한다. */
+export async function updateTagBook(change: (book: TagBook) => TagBook): Promise<TagBook> {
+  try {
+    const database = await openTodoDatabase();
+    const transaction = database.transaction(META_STORE, 'readwrite');
+    const store = transaction.objectStore(META_STORE);
+    const entry = await requestResult(store.get(TAGS_META_KEY)) as { value?: unknown } | undefined;
+    const current: unknown = entry?.value ?? emptyTagBook();
+    validateTagBook(current);
+    let next: TagBook;
+    try {
+      next = change(current);
+      validateTagBook(next);
+    } catch (error) {
+      transaction.abort();
+      throw error;
+    }
+    store.put({ key: TAGS_META_KEY, value: next });
+    await transactionDone(transaction);
+    return next;
+  } catch (error) {
+    if (error instanceof TodoError) throw error;
+    throw storageError(error);
+  }
+}
+
+export async function replaceSnapshot(snapshot: { todos: TodoData[]; records: TodoRecordData[] }, notebook?: Notebook, tags?: TagBook): Promise<void> {
   if (notebook) validateNotebook(notebook);
+  if (tags) validateTagBook(tags);
   try {
     const database = await openTodoDatabase();
     const transaction = database.transaction([TODO_STORE, RECORD_STORE, META_STORE], 'readwrite');
@@ -633,6 +681,7 @@ export async function replaceSnapshot(snapshot: { todos: TodoData[]; records: To
     snapshot.todos.forEach((todo) => todoStore.put(todo));
     snapshot.records.forEach((record) => recordStore.put(record));
     if (notebook) transaction.objectStore(META_STORE).put({ key: 'notebook', value: notebook });
+    if (tags) transaction.objectStore(META_STORE).put({ key: TAGS_META_KEY, value: tags });
     transaction.objectStore(META_STORE).put({ key: 'schemaVersion', value: DATABASE_VERSION });
     await transactionDone(transaction);
   } catch (error) {
@@ -641,5 +690,5 @@ export async function replaceSnapshot(snapshot: { todos: TodoData[]; records: To
 }
 
 export async function clearAllData(): Promise<void> {
-  return replaceSnapshot({ todos: [], records: [] }, emptyNotebook());
+  return replaceSnapshot({ todos: [], records: [] }, emptyNotebook(), emptyTagBook());
 }

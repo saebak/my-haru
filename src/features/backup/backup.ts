@@ -1,8 +1,9 @@
 import { parseDate } from '../../domain/todos/date';
 import { emptyNotebook, validateNotebook, type Notebook } from '../../domain/notes';
+import { emptyTagBook, validateTagBook, type TagBook } from '../../domain/tags';
 import { occursOn, resolveTodoCategory, TodoError, validateTodo } from '../../domain/todos/todoDomain';
 import type { RepositoryDependencies, TodoData, TodoOverrides, TodoRecordData } from '../../domain/todos/types';
-import { DATABASE_VERSION, loadSnapshot, loadNotebook, replaceSnapshot } from '../../infrastructure/indexed-db/todoRepository';
+import { DATABASE_VERSION, loadSnapshot, loadNotebook, loadTagBook, replaceSnapshot } from '../../infrastructure/indexed-db/todoRepository';
 
 export const BACKUP_FORMAT = 'my-daily-todo-backup';
 export const MAX_BACKUP_BYTES = 5 * 1024 * 1024;
@@ -16,6 +17,7 @@ export type TodoBackup = {
   timezone: 'Asia/Seoul';
   data: { todos: TodoData[]; records: TodoRecordData[] };
   notebook?: Notebook;
+  tags?: TagBook;
 };
 
 function invalid(message: string): never {
@@ -49,6 +51,7 @@ function readTodo(value: unknown): TodoData {
   if (value.repeatFrequency !== null && value.repeatFrequency !== 'daily' && value.repeatFrequency !== 'weekly' && value.repeatFrequency !== 'interval_days') invalid('백업의 반복 방식이 올바르지 않아요.');
   if (value.repeatInterval !== null && !Number.isInteger(value.repeatInterval)) invalid('백업의 반복 간격이 올바르지 않아요.');
   if (!Array.isArray(value.repeatWeekdays) || !value.repeatWeekdays.every(Number.isInteger)) invalid('백업의 반복 요일이 올바르지 않아요.');
+  if (value.tagIds !== undefined && (!Array.isArray(value.tagIds) || !value.tagIds.every((id) => typeof id === 'string'))) invalid('백업의 태그 연결 정보가 올바르지 않아요.');
   if (value.timezone !== null && value.timezone !== 'Asia/Seoul') invalid('지원하지 않는 시간대예요.');
   if (!isIsoInstant(value.createdAt) || !isIsoInstant(value.updatedAt) || (value.completedAt !== null && !isIsoInstant(value.completedAt)) || (value.deletedAt !== null && !isIsoInstant(value.deletedAt))) invalid('백업의 변경 시각이 올바르지 않아요.');
   const todo = { ...(value as TodoData), category: resolveTodoCategory(value as TodoData) };
@@ -125,15 +128,22 @@ export function parseAndValidateBackup(text: string): TodoBackup {
   const records = value.data.records.map(readRecord);
   validateRelations(todos, records);
   if (value.notebook !== undefined) validateNotebook(value.notebook);
-  return { format: BACKUP_FORMAT, schemaVersion: DATABASE_VERSION, exportedAt: value.exportedAt, timezone: 'Asia/Seoul', data: { todos, records }, ...(value.notebook !== undefined ? { notebook: value.notebook } : {}) };
+  if (value.tags !== undefined) {
+    try { validateTagBook(value.tags); } catch { invalid('백업의 태그 데이터가 올바르지 않아요.'); }
+  }
+  return {
+    format: BACKUP_FORMAT, schemaVersion: DATABASE_VERSION, exportedAt: value.exportedAt, timezone: 'Asia/Seoul', data: { todos, records },
+    ...(value.notebook !== undefined ? { notebook: value.notebook } : {}),
+    ...(value.tags !== undefined ? { tags: value.tags } : {}),
+  };
 }
 
 export async function createBackup(deps: Pick<RepositoryDependencies, 'now'> = { now: () => new Date() }): Promise<TodoBackup> {
   const snapshot = await loadSnapshot();
-  return { format: BACKUP_FORMAT, schemaVersion: DATABASE_VERSION, exportedAt: deps.now().toISOString(), timezone: 'Asia/Seoul', data: snapshot, notebook: await loadNotebook() };
+  return { format: BACKUP_FORMAT, schemaVersion: DATABASE_VERSION, exportedAt: deps.now().toISOString(), timezone: 'Asia/Seoul', data: snapshot, notebook: await loadNotebook(), tags: await loadTagBook() };
 }
 
 export async function restoreBackup(text: string): Promise<void> {
   const backup = parseAndValidateBackup(text);
-  await replaceSnapshot(backup.data, backup.notebook ?? emptyNotebook());
+  await replaceSnapshot(backup.data, backup.notebook ?? emptyNotebook(), backup.tags ?? emptyTagBook());
 }

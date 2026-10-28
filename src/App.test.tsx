@@ -6,7 +6,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
 import { addDays } from './domain/todos/date';
 import { initializeCloudSync, syncIfConnected } from './infrastructure/sync/cloudSync';
-import { completeOnboarding, convertOneTimeToRecurring, createTodo, hasCompletedOnboarding, loadSnapshot, setOneTimeStatus } from './infrastructure/indexed-db/todoRepository';
+import { completeOnboarding, convertOneTimeToRecurring, createTodo, hasCompletedOnboarding, loadSnapshot, loadTagBook, setOneTimeStatus, updateTagBook } from './infrastructure/indexed-db/todoRepository';
+import { activeTags, addTags, TAG_PRESETS, type TagBook } from './domain/tags';
+import type { TodoData } from './domain/todos/types';
 
 vi.mock('./infrastructure/indexed-db/todoRepository', () => ({
   loadSnapshot: vi.fn().mockResolvedValue({ todos: [], records: [] }),
@@ -17,6 +19,9 @@ vi.mock('./infrastructure/indexed-db/todoRepository', () => ({
   createTodo: vi.fn().mockResolvedValue({}),
   convertOneTimeToRecurring: vi.fn(), updateOneTime: vi.fn(), updateRecurring: vi.fn(), setOneTimeStatus: vi.fn(), setRecurringStatus: vi.fn(),
   deleteOccurrence: vi.fn(), undoDelete: vi.fn(), clearAllData: vi.fn(), replaceSnapshot: vi.fn(),
+  generateUuid: vi.fn(() => crypto.randomUUID()),
+  loadTagBook: vi.fn().mockResolvedValue({ schemaVersion: 1, tags: [] }),
+  updateTagBook: vi.fn(),
 }));
 
 vi.mock('./infrastructure/sync/cloudSync', () => ({
@@ -53,6 +58,125 @@ describe('App', () => {
     expect(selected()).toBe(start);
     pointer('pointerdown', 250, 200); pointer('pointercancel', 200, 200); pointer('pointerup', 100, 200);
     expect(selected()).toBe(start);
+  });
+
+  it('pages weeks on strip swipes and keeps the strip still for neighbouring day swipes', async () => {
+    render(<App />);
+    await screen.findByText('이날의 항목이 없어요');
+    const main = screen.getByRole('main');
+    const strip = screen.getByRole('region', { name: '날짜 선택' });
+    const days = () => [...strip.querySelectorAll<HTMLButtonElement>('button[data-date]')];
+    const today = days()[3].dataset.date!;
+    function pointer(target: Element, type: string, x: number) {
+      const event = new MouseEvent(type, { bubbles: true, clientX: x, clientY: 200, button: 0 });
+      Object.defineProperties(event, { pointerId: { value: 1 }, isPrimary: { value: true } });
+      fireEvent(target, event);
+    }
+    pointer(main, 'pointerdown', 250); pointer(main, 'pointerup', 100);
+    expect(days()[3]).toHaveAttribute('data-date', today);
+    expect(days()[4]).toHaveAttribute('aria-pressed', 'true');
+    const day = days()[2];
+    pointer(day, 'pointerdown', 250); pointer(day, 'pointerup', 100);
+    expect(days()[3]).toHaveAttribute('data-date', addDays(today, 7));
+    expect(strip.querySelector('.week-strip')).toHaveClass('slide-next');
+    expect(strip.querySelector('[aria-pressed="true"]')).not.toBeInTheDocument();
+    pointer(main, 'pointerdown', 100); pointer(main, 'pointerup', 250);
+    expect(strip.querySelector('[aria-pressed="true"]')).toHaveAttribute('data-date', today);
+    expect(strip.querySelector('.week-strip')).toHaveClass('slide-previous');
+  });
+
+  describe('tags', () => {
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date());
+    const stamp = '2026-10-27T00:00:00.000Z';
+    let book: TagBook;
+    const todo = (id: string, title: string, tagIds: string[], createdAt: string): TodoData => ({
+      id, type: 'one_time', category: 'todo', seriesId: null, revision: null, title, memo: '', emoji: '💡', status: 'pending', priority: 'normal',
+      dueDate: today, dueTime: null, completedAt: null, repeatFrequency: null, repeatInterval: null, repeatWeekdays: [], repeatStartDate: null,
+      repeatEndDate: null, timezone: null, tagIds, createdAt, updatedAt: createdAt, deletedAt: null,
+    });
+    beforeEach(() => {
+      book = { schemaVersion: 1, tags: [] };
+      vi.mocked(loadTagBook).mockImplementation(async () => book);
+      vi.mocked(updateTagBook).mockImplementation(async (change) => { book = change(book); return book; });
+    });
+
+    it('adds several recommended tags at once from settings', async () => {
+      render(<App />);
+      await screen.findByText('이날의 항목이 없어요');
+      expect(screen.queryByRole('button', { name: /^태그 필터/ })).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: '설정 열기' }));
+      fireEvent.click(screen.getByRole('button', { name: /태그 관리/ }));
+      const dialog = screen.getByRole('dialog', { name: '태그 관리' });
+      fireEvent.click(within(dialog).getByRole('button', { name: '육아' }));
+      fireEvent.click(within(dialog).getByRole('button', { name: '반려동물' }));
+      expect(within(dialog).getByRole('button', { name: '육아' })).toHaveAttribute('aria-pressed', 'true');
+      fireEvent.click(within(dialog).getByRole('button', { name: '선택한 2개 추가' }));
+      expect(await within(dialog).findByRole('button', { name: '육아 수정' })).toBeInTheDocument();
+      expect(within(dialog).queryByRole('button', { name: '육아' })).not.toBeInTheDocument();
+      expect(book.tags.map((tag) => tag.name)).toEqual(['육아', '반려동물']);
+      fireEvent.click(within(dialog).getByRole('button', { name: '닫기' }));
+      fireEvent.click(screen.getByRole('button', { name: '태그 필터: 전체' }));
+      expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual(['전체 태그', '육아', '반려동물']);
+    });
+
+    it('creates a recommended tag from the form and saves it on the new item', async () => {
+      render(<App />);
+      await screen.findByText('이날의 항목이 없어요');
+      fireEvent.click(screen.getByRole('button', { name: '추가' }));
+      const trigger = screen.getByRole('button', { name: '태그 선택 태그 없음' });
+      expect(trigger).toHaveAttribute('aria-expanded', 'false');
+      fireEvent.click(trigger);
+      fireEvent.click(within(screen.getByRole('group', { name: '추천 태그 바로 추가' })).getByRole('button', { name: '+ 건강관리' }));
+      expect(await screen.findByRole('button', { name: '태그 선택 건강관리' })).toHaveAttribute('aria-expanded', 'false');
+      expect(screen.queryByRole('dialog', { name: '태그 선택' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: '+ 자기개발' })).not.toBeInTheDocument();
+      fireEvent.change(screen.getByLabelText('무엇을 할까요?'), { target: { value: '물 마시기' } });
+      fireEvent.click(screen.getByRole('button', { name: '할 일 추가' }));
+      await waitFor(() => expect(createTodo).toHaveBeenCalledWith(expect.objectContaining({ title: '물 마시기', tagIds: [book.tags[0].id] })));
+    });
+
+    it('renames and deletes tags from the form tag popup', async () => {
+      book = addTags(book, [TAG_PRESETS[0], TAG_PRESETS[2]], { now: () => new Date(stamp), uuid: () => crypto.randomUUID() }).book;
+      render(<App />);
+      await screen.findByText('이날의 항목이 없어요');
+      fireEvent.click(screen.getByRole('button', { name: '추가' }));
+      fireEvent.click(screen.getByRole('button', { name: '태그 선택 태그 없음' }));
+      fireEvent.click(screen.getByRole('button', { name: '편집' }));
+      fireEvent.click(screen.getByRole('button', { name: '건강관리 이름 수정' }));
+      fireEvent.change(screen.getByLabelText('건강관리 새 이름'), { target: { value: '운동' } });
+      fireEvent.click(screen.getByRole('button', { name: '저장' }));
+      expect(await screen.findByRole('button', { name: '운동 이름 수정' })).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: '이직준비 삭제' }));
+      fireEvent.click(within(screen.getByRole('group', { name: '이직준비 삭제 확인' })).getByRole('button', { name: '삭제' }));
+      await waitFor(() => expect(screen.queryByRole('button', { name: '이직준비 이름 수정' })).not.toBeInTheDocument());
+      expect(activeTags(book).map((tag) => tag.name)).toEqual(['운동']);
+      fireEvent.click(screen.getByRole('button', { name: '완료' }));
+      expect(within(screen.getByRole('group', { name: '내 태그' })).getAllByRole('button').map((button) => button.textContent)).toEqual(['태그 없음', '운동']);
+    });
+
+    it('shows tag chips, filters the list without changing progress, and preselects the filtered tag', async () => {
+      book = addTags(book, [TAG_PRESETS[0], TAG_PRESETS[2]], { now: () => new Date(stamp), uuid: () => crypto.randomUUID() }).book;
+      const [health, career] = book.tags;
+      vi.mocked(loadSnapshot).mockResolvedValue({ todos: [todo('t1', '스트레칭', [health.id], stamp), todo('t2', '이력서', [career.id], '2026-10-27T00:00:01.000Z'), todo('t3', '장보기', [], '2026-10-27T00:00:02.000Z')], records: [] });
+      const { container } = render(<App />);
+      await screen.findByText('스트레칭');
+      expect(within(screen.getByRole('button', { name: '스트레칭 상세보기' })).getByText('건강관리')).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: '태그 필터: 전체' }));
+      fireEvent.click(screen.getByRole('option', { name: '이직준비' }));
+      expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+      expect([...container.querySelectorAll('.swipe-item .item-title')].map((node) => node.textContent)).toEqual(['이력서']);
+      expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '0');
+      expect(container.querySelector('.progress-numbers')).toHaveTextContent('0 / 3');
+      fireEvent.click(screen.getByRole('button', { name: '추가' }));
+      expect(within(screen.getByRole('dialog')).getByRole('button', { name: '태그 선택 이직준비' })).toHaveAttribute('aria-haspopup', 'dialog');
+      fireEvent.click(screen.getByRole('button', { name: '닫기' }));
+      const select = screen.getByRole('button', { name: '태그 필터: 이직준비' });
+      fireEvent.keyDown(select, { key: 'ArrowDown' });
+      const listbox = screen.getByRole('listbox');
+      fireEvent.keyDown(listbox, { key: 'Home' });
+      fireEvent.keyDown(listbox, { key: 'Enter' });
+      expect(container.querySelectorAll('.swipe-item')).toHaveLength(3);
+    });
   });
 
   it('opens independent notes and asks before discarding unsaved text', async () => {

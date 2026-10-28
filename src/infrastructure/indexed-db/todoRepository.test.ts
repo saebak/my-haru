@@ -5,7 +5,7 @@ import { materializeItems } from '../../domain/todos/todoDomain';
 import type { RepositoryDependencies } from '../../domain/todos/types';
 import {
   closeTodoDatabase, completeOnboarding, convertOneTimeToRecurring, createTodo, DATABASE_NAME, deleteOccurrence, generateUuid, hasCompletedOnboarding, loadCloudSession, loadManualOrders, loadRecurringOrders, loadSnapshot, openTodoDatabase, saveCloudSession, saveManualOrder, saveRecurringOrderFrom,
-  setOneTimeStatus, setRecurringStatus, softDeleteCompleted, undoDelete, updateRecurring,
+  setOneTimeStatus, setRecurringStatus, softDeleteCompleted, undoDelete, updateOneTime, updateRecurring,
 } from './todoRepository';
 
 const deps: RepositoryDependencies = {
@@ -133,6 +133,23 @@ describe('IndexedDB todo repository', () => {
     expect(revisions[1].createdAt).toBe(todo.createdAt);
     expect(revisions[1].updatedAt).toBe('2026-09-11T01:00:00.000Z');
     expect(snapshot.records[0]).toMatchObject({ targetDate: '2026-09-10', status: 'completed', deletedAt: null });
+  });
+
+  it('stores tag links on todos and changes recurring tags only for future or whole-series edits', async () => {
+    const oneTime = await createTodo({ type: 'one_time', title: '이력서 수정', memo: '', emoji: '💼', priority: 'normal', dueDate: '2026-09-11', dueTime: null, tagIds: ['tag-career'] }, deps);
+    expect(materializeItems([oneTime], [], '2026-09-11')[0].tagIds).toEqual(['tag-career']);
+    await updateOneTime(oneTime.id, { title: '이력서 완성', memo: '', emoji: '💼', priority: 'normal', dueDate: '2026-09-11', dueTime: null }, deps);
+    expect((await loadSnapshot()).todos.find((todo) => todo.id === oneTime.id)?.tagIds).toEqual(['tag-career']);
+    await expect(createTodo({ type: 'one_time', title: '중복', memo: '', emoji: '', priority: 'normal', dueDate: '2026-09-11', dueTime: null, tagIds: ['a', 'a'] }, deps)).rejects.toThrow('태그');
+
+    const habit = await createTodo({ type: 'recurring', category: 'habit', title: '스트레칭', memo: '', emoji: '🧘', priority: 'normal', dueTime: null, repeatStartDate: '2026-09-01', repeatFrequency: 'daily', repeatInterval: 1, repeatWeekdays: [], repeatEndDate: null, tagIds: ['tag-health'] }, deps);
+    const patch = { title: '스트레칭', memo: '', emoji: '🧘', priority: 'normal' as const, dueTime: null, repeatFrequency: 'daily' as const, repeatInterval: 1, repeatWeekdays: [], repeatEndDate: null };
+    await expect(updateRecurring(habit.seriesId!, '2026-09-11', 'date', { ...patch, tagIds: ['tag-mind'] }, deps)).rejects.toThrow('오늘 이후');
+    await updateRecurring(habit.seriesId!, '2026-09-11', 'date', { ...patch, title: '긴 스트레칭' }, deps);
+    await updateRecurring(habit.seriesId!, '2026-09-12', 'future', { ...patch, tagIds: ['tag-mind'] }, deps);
+    const { todos, records } = await loadSnapshot();
+    expect(materializeItems(todos, records, '2026-09-11').find((item) => item.seriesId === habit.seriesId)?.tagIds).toEqual(['tag-health']);
+    expect(materializeItems(todos, records, '2026-09-12').find((item) => item.seriesId === habit.seriesId)?.tagIds).toEqual(['tag-mind']);
   });
 
   it('does not create a record on a date outside the recurrence rule', async () => {

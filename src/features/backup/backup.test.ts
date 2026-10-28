@@ -3,7 +3,8 @@ import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 
 import type { TodoBackup } from './backup';
 import { BACKUP_FORMAT, createBackup, parseAndValidateBackup, restoreBackup } from './backup';
-import { closeTodoDatabase, createTodo, DATABASE_NAME, loadSnapshot, loadNotebook, saveNote, replaceSnapshot, clearAllData } from '../../infrastructure/indexed-db/todoRepository';
+import { closeTodoDatabase, createTodo, DATABASE_NAME, loadSnapshot, loadNotebook, loadTagBook, saveNote, replaceSnapshot, clearAllData, updateTagBook } from '../../infrastructure/indexed-db/todoRepository';
+import { addTags, TAG_PRESETS } from '../../domain/tags';
 
 const now = '2026-09-11T01:00:00.000Z';
 
@@ -46,7 +47,7 @@ describe('backup validation and restore', () => {
   it('round-trips a supported backup', async () => {
     await restoreBackup(JSON.stringify(validBackup()));
     const exported = await createBackup({ now: () => new Date(now) });
-    expect(exported).toEqual({ ...validBackup(), notebook: { schemaVersion: 1, notes: [] } });
+    expect(exported).toEqual({ ...validBackup(), notebook: { schemaVersion: 1, notes: [] }, tags: { schemaVersion: 1, tags: [] } });
   });
 
   it('opens a legacy notebook, persists notes, and preserves them during cloud replacement', async () => {
@@ -76,6 +77,27 @@ describe('backup validation and restore', () => {
     expect(await loadNotebook()).toEqual(before);
     await restoreBackup(JSON.stringify(validBackup()));
     expect((await loadNotebook()).notes).toEqual([]);
+  });
+
+  it('round-trips tags, rejects malformed tags without changes, and keeps tags across cloud replacement', async () => {
+    await restoreBackup(JSON.stringify(validBackup()));
+    expect(await loadTagBook()).toEqual({ schemaVersion: 1, tags: [] });
+    await updateTagBook((book) => addTags(book, [TAG_PRESETS[0], TAG_PRESETS[8]], { now: () => new Date(now), uuid: () => crypto.randomUUID() }).book);
+    const backup = await createBackup();
+    expect(backup.tags?.tags.map((tag) => tag.name)).toEqual(['건강관리', '육아']);
+
+    await expect(restoreBackup(JSON.stringify({ ...backup, tags: { schemaVersion: 1, tags: [{ name: 42 }] } }))).rejects.toThrow('태그');
+    await expect(restoreBackup(JSON.stringify({ ...backup, data: { ...backup.data, todos: [{ ...backup.data.todos[0], tagIds: [7] }] } }))).rejects.toThrow('태그');
+    expect((await loadTagBook()).tags).toHaveLength(2);
+
+    await replaceSnapshot({ todos: [], records: [] });
+    expect((await loadTagBook()).tags).toHaveLength(2);
+    await restoreBackup(JSON.stringify(validBackup()));
+    expect((await loadTagBook()).tags).toEqual([]);
+    await restoreBackup(JSON.stringify(backup));
+    expect((await loadTagBook()).tags).toHaveLength(2);
+    await clearAllData();
+    expect((await loadTagBook()).tags).toEqual([]);
   });
 
   it('adds a category when importing an older backup without one', () => {

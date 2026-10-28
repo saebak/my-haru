@@ -1,11 +1,13 @@
 import {
   CSSProperties,
   FormEvent,
+  MutableRefObject,
   PointerEvent as ReactPointerEvent,
   ReactNode,
   RefObject,
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -33,8 +35,10 @@ import { CSS } from '@dnd-kit/utilities';
 import { SchedulePicker } from './components/SchedulePicker';
 import { Notebook } from './components/Notebook';
 import { ActionIcon } from './components/ActionIcon';
+import { TagChip, TagField, TagManager, TagSelect } from './components/Tags';
+import { activeTags, addTags, deleteTag, emptyTagBook, moveTag, updateTag, type Tag, type TagBook, type TagInput } from './domain/tags';
 
-import { addDays, formatDate, monthGrid, parseDate, todayInSeoul } from './domain/todos/date';
+import { addDays, daysBetween, formatDate, monthGrid, parseDate, todayInSeoul } from './domain/todos/date';
 import { materializeItems, occursOn, TodoError } from './domain/todos/todoDomain';
 import type {
   CreateTodoInput,
@@ -59,7 +63,9 @@ import {
   hasCompletedOnboarding,
   loadManualOrders,
   loadRecurringOrders,
+  generateUuid,
   loadSnapshot,
+  loadTagBook,
   setOneTimeStatus,
   setRecurringStatus,
   saveManualOrder,
@@ -67,14 +73,17 @@ import {
   undoDelete,
   updateOneTime,
   updateRecurring,
+  updateTagBook,
 } from './infrastructure/indexed-db/todoRepository';
 
 type Snapshot = { todos: TodoData[]; records: TodoRecordData[] };
 type ItemType = 'todo' | 'habit';
 type EditScope = 'date' | 'future' | 'all';
-type Overlay = 'detail' | 'copy' | 'form' | 'delete' | 'settings' | 'data' | 'import' | 'reset' | null;
+type Overlay = 'detail' | 'copy' | 'form' | 'delete' | 'settings' | 'data' | 'import' | 'reset' | 'tags' | null;
+type SlideDirection = 'previous' | 'next';
 
 const EMPTY_SNAPSHOT: Snapshot = { todos: [], records: [] };
+const tagDeps = { now: () => new Date(), uuid: () => generateUuid() };
 const PRIORITY_LABEL: Record<Priority, string> = { high: '중요', normal: '보통', low: '낮음' };
 const WEEKDAY_LABELS = ['일', '월', '화', '수', '목', '금', '토'];
 const FORM_WEEKDAYS = [
@@ -182,6 +191,11 @@ function TodoForm({
   editing,
   source,
   saving,
+  tagBook,
+  defaultTagId,
+  onCreateTag,
+  onRenameTag,
+  onDeleteTag,
   onCancel,
   onSubmit,
 }: {
@@ -189,6 +203,11 @@ function TodoForm({
   editing: DisplayTodo | null;
   source: TodoData | null;
   saving: boolean;
+  tagBook: TagBook;
+  defaultTagId: string;
+  onCreateTag: (input: TagInput) => Promise<Tag>;
+  onRenameTag: (id: string, name: string) => Promise<unknown>;
+  onDeleteTag: (id: string) => Promise<unknown>;
   onCancel: () => void;
   onSubmit: (input: CreateTodoInput | RecurringPatch | TodoContentPatch, scope: EditScope, type: ItemType) => Promise<void>;
 }) {
@@ -204,6 +223,10 @@ function TodoForm({
   const [repeatInterval, setRepeatInterval] = useState(source?.repeatInterval ?? 2);
   const [scope, setScope] = useState<EditScope>('date');
   const [formError, setFormError] = useState('');
+  // 수정 시 원래 태그가 삭제됐으면 선택 없음으로 보여주되, 사용자가 바꾸지 않으면 저장값을 건드리지 않는다.
+  const originalTagId = editing?.tagIds.find((id) => activeTags(tagBook).some((tag) => tag.id === id)) ?? '';
+  const [tagId, setTagId] = useState(editing ? originalTagId : defaultTagId);
+  const tagChanged = editing ? tagId !== originalTagId : Boolean(tagId);
   const isHabit = type === 'habit';
   const repeats = isHabit || repeating;
 
@@ -239,7 +262,12 @@ function TodoForm({
       emoji: emoji || '💡',
       priority: String(data.get('priority') ?? 'normal') as Priority,
       dueTime: isHabit ? null : String(data.get('time') ?? '') || null,
+      ...(tagChanged ? { tagIds: tagId ? [tagId] : [] } : {}),
     };
+    if (editing?.type === 'recurring' && scope === 'date' && tagChanged) {
+      setFormError('반복 항목의 태그는 "오늘 이후" 또는 "전체 반복"으로 바꿀 수 있어요.');
+      return;
+    }
     try {
       if (!repeats) {
         await onSubmit({ type: 'one_time', ...content, dueDate: String(data.get('date') ?? selectedDate) }, scope, type);
@@ -273,6 +301,7 @@ function TodoForm({
       </fieldset>
       <label className="field-label" htmlFor="task-title">무엇을 할까요?</label>
       <input ref={titleRef} id="task-title" name="title" type="text" placeholder="내용을 입력하세요" autoComplete="off" required maxLength={120} defaultValue={editing?.title ?? ''} aria-describedby={formError ? 'form-error' : undefined} />
+      <TagField book={tagBook} value={tagId} onChange={setTagId} onCreate={onCreateTag} onRename={onRenameTag} onDelete={onDeleteTag} disabled={saving} />
       <div className={`field-grid quick-field-grid ${isHabit ? 'is-habit' : ''}`}>
         <div className="emoji-field">
           <span className="field-label">이모지 <em>선택</em></span>
@@ -340,6 +369,7 @@ function streakFor(snapshot: Snapshot, item: DisplayTodo) {
 
 type TaskCardProps = {
   item: DisplayTodo;
+  tag: Tag | null;
   snapshot: Snapshot;
   busy: boolean;
   open: boolean;
@@ -351,7 +381,7 @@ type TaskCardProps = {
 };
 
 function TaskCard({
-  item, snapshot, busy, open, onOpen, onToggle, onEdit, onDelete, onView,
+  item, tag, snapshot, busy, open, onOpen, onToggle, onEdit, onDelete, onView,
   setNodeRef, setActivatorNodeRef, sortableStyle, dragging = false, dragAttributes, dragListeners,
 }: TaskCardProps & {
   setNodeRef?: (node: HTMLDivElement | null) => void;
@@ -371,7 +401,6 @@ function TaskCard({
     rowClick.current = false;
     if (!event.isPrimary || event.button !== 0 || (event.target as HTMLElement).closest('button:not(.item-detail-button)')) return;
     rowGesture.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, vertical: false };
-    event.currentTarget.setPointerCapture?.(event.pointerId);
   }
   function endRowSwipe(event: ReactPointerEvent<HTMLElement>) {
     const start = rowGesture.current;
@@ -400,9 +429,9 @@ function TaskCard({
       <button className="edit-action" type="button" data-action="edit" tabIndex={open ? 0 : -1} disabled={busy} onClick={(event) => onEdit(event.currentTarget)}>수정</button>
       <button className="delete-action" type="button" data-action="delete" tabIndex={open ? 0 : -1} disabled={busy} onClick={(event) => onDelete(event.currentTarget)}>삭제</button>
     </div>
-<article className={`item-card ${done ? 'is-done' : ''} ${skipped ? 'is-skipped' : ''}`} aria-label={`${item.title}${done ? ', 완료됨' : ''}`} onKeyDown={event => { if (event.key === 'F10' && event.shiftKey) { event.preventDefault(); onOpen(true); const row = event.currentTarget.parentElement; window.setTimeout(() => row?.querySelector<HTMLButtonElement>('[data-action="edit"]')?.focus(), 0); } }} onPointerDown={startRowSwipe} onPointerMove={event => { const start = rowGesture.current; if (!start || start.pointerId !== event.pointerId) return; const dx = event.clientX - start.x; const dy = event.clientY - start.y; if (Math.abs(dy) > 12 && Math.abs(dy) > Math.abs(dx)) start.vertical = true; if (!start.vertical && Math.abs(dx) > 8) { event.preventDefault(); event.currentTarget.parentElement?.classList.add('is-swiping'); event.currentTarget.style.transform = `translateX(${Math.max(-112, Math.min(0, (open ? -112 : 0) + dx))}px)`; } }} onPointerUp={endRowSwipe} onPointerCancel={cancelRowSwipe} onLostPointerCapture={cancelRowSwipe} onClickCapture={event => { if (rowClick.current && event.detail !== 0) { event.preventDefault(); event.stopPropagation(); rowClick.current = false; } }}>
+<article className={`item-card ${done ? 'is-done' : ''} ${skipped ? 'is-skipped' : ''}`} aria-label={`${item.title}${done ? ', 완료됨' : ''}`} onKeyDown={event => { if (event.key === 'F10' && event.shiftKey) { event.preventDefault(); onOpen(true); const row = event.currentTarget.parentElement; window.setTimeout(() => row?.querySelector<HTMLButtonElement>('[data-action="edit"]')?.focus(), 0); } }} onPointerDown={startRowSwipe} onPointerMove={event => { const start = rowGesture.current; if (!start || start.pointerId !== event.pointerId) return; const dx = event.clientX - start.x; const dy = event.clientY - start.y; if (Math.abs(dy) > 12 && Math.abs(dy) > Math.abs(dx)) start.vertical = true; if (!start.vertical && Math.abs(dx) > 8) { event.preventDefault(); if (!event.currentTarget.hasPointerCapture?.(event.pointerId)) event.currentTarget.setPointerCapture?.(event.pointerId); event.currentTarget.parentElement?.classList.add('is-swiping'); event.currentTarget.style.transform = `translateX(${Math.max(-112, Math.min(0, (open ? -112 : 0) + dx))}px)`; } }} onPointerUp={endRowSwipe} onPointerCancel={cancelRowSwipe} onLostPointerCapture={cancelRowSwipe} onClickCapture={event => { if (rowClick.current && event.detail !== 0) { event.preventDefault(); event.stopPropagation(); rowClick.current = false; } }}>
       <div className="item-icon" aria-hidden="true">{item.emoji || '💡'}</div>
-      <button type="button" className="item-body item-detail-button" aria-label={`${item.title} 상세보기`} onClick={event => onView(event.currentTarget)}><span className="item-title-row"><strong className="item-title">{item.title}</strong><span className={`item-type-tag ${routine ? 'routine' : 'todo'}`}>{routine ? 'ROUTINE' : 'TODO'}</span></span>{item.memo && <span className="item-memo">{item.memo}</span>}<span className="item-meta">{routine && done && <span className="streak-badge">🔥 {streakFor(snapshot, item)}일 연속</span>}{!routine && <span className={`priority-mark ${item.priority}`}>{PRIORITY_LABEL[item.priority]}</span>}{item.dueTime && <span>{item.dueTime}</span>}{skipped && <span>건너뜀</span>}{done && <span className="completion-badge">✓ 완료됨</span>}</span></button>
+      <button type="button" className="item-body item-detail-button" aria-label={`${item.title} 상세보기`} onClick={event => onView(event.currentTarget)}><span className="item-title-row"><strong className="item-title">{item.title}</strong><span className={`item-type-tag ${routine ? 'routine' : 'todo'}`}>{routine ? 'ROUTINE' : 'TODO'}</span></span>{item.memo && <span className="item-memo">{item.memo}</span>}<span className="item-meta">{tag && <TagChip tag={tag} />}{routine && done && <span className="streak-badge">🔥 {streakFor(snapshot, item)}일 연속</span>}{!routine && <span className={`priority-mark ${item.priority}`}>{PRIORITY_LABEL[item.priority]}</span>}{item.dueTime && <span>{item.dueTime}</span>}{skipped && <span>건너뜀</span>}{done && <span className="completion-badge">✓ 완료됨</span>}</span></button>
       <button className={`item-check ${done ? 'is-done' : ''}`} type="button" data-action="toggle" disabled={busy} onClick={onToggle} aria-label={`${item.title} ${done ? '완료 취소' : '완료'}`}>✓</button>
       <button ref={setActivatorNodeRef} {...dragAttributes} {...dragListeners} className="drag-handle" type="button" data-action="drag" aria-label={`${item.title} 순서 변경`}>⠿</button>
     </article>
@@ -416,11 +445,11 @@ function SortableTaskCard(props: TaskCardProps) {
     sortableStyle={{ transform: CSS.Transform.toString(transform), transition }} />;
 }
 
-function DraggedTaskCard({ item, snapshot }: { item: DisplayTodo; snapshot: Snapshot }) {
+function DraggedTaskCard({ item, tag, snapshot }: { item: DisplayTodo; tag: Tag | null; snapshot: Snapshot }) {
   const routine = itemType(item) === 'habit';
   return <article className="item-card drag-overlay" aria-hidden="true">
     <div className="item-icon">{item.emoji || '💡'}</div>
-    <div className="item-body"><div className="item-title-row"><strong className="item-title">{item.title}</strong><span className={`item-type-tag ${routine ? 'routine' : 'todo'}`}>{routine ? 'ROUTINE' : 'TODO'}</span></div><div className="item-meta">{routine && item.status === 'completed' && <span className="streak-badge">🔥 {streakFor(snapshot, item)}일 연속</span>}{!routine && <><span className={`priority-mark ${item.priority}`}>{PRIORITY_LABEL[item.priority]}</span>{item.dueTime && <span>{item.dueTime}</span>}</>}</div></div>
+    <div className="item-body"><div className="item-title-row"><strong className="item-title">{item.title}</strong><span className={`item-type-tag ${routine ? 'routine' : 'todo'}`}>{routine ? 'ROUTINE' : 'TODO'}</span></div><div className="item-meta">{tag && <TagChip tag={tag} />}{routine && item.status === 'completed' && <span className="streak-badge">🔥 {streakFor(snapshot, item)}일 연속</span>}{!routine && <><span className={`priority-mark ${item.priority}`}>{PRIORITY_LABEL[item.priority]}</span>{item.dueTime && <span>{item.dueTime}</span>}</>}</div></div>
     <span className="drag-overlay-handle" aria-hidden="true">⠿</span>
   </article>;
 }
@@ -518,8 +547,8 @@ function DataPanel({ busy, error, cloudStatus, onClose, onExport, onImport, onRe
   return <Modal kicker="ACCOUNT" title="데이터 백업 및 복원" compact onClose={onClose}><p className={`cloud-status cloud-status-${cloudStatus}`}><strong>{cloudStatus === 'connected' ? '클라우드 백업 연결됨' : '기기 저장 사용 중'}</strong><span>{cloudCopy}</span></p>{error && <p className="form-error" role="alert">{error}</p>}<div className="data-action-list"><button disabled={busy} onClick={onExport}><strong>백업 내보내기</strong><small>모든 항목과 수행 기록을 JSON 파일로 저장해요.</small></button><label className={busy ? 'is-disabled' : ''}><input className="sr-only" type="file" accept="application/json,.json" aria-label="백업 파일 선택" disabled={busy} onChange={(event) => { const file = event.target.files?.[0]; if (file) onImport(file); event.currentTarget.value = ''; }} /><strong>백업 가져오기</strong><small>검증을 통과한 파일로 현재 데이터를 교체해요.</small></label><button className="danger-data-action" disabled={busy} onClick={onReset}><strong>모든 데이터 삭제</strong><small>기기의 할 일과 수행 기록을 모두 지워요.</small></button></div></Modal>;
 }
 
-function SettingsPanel({ cloudStatus, onClose, onGuide, onData, onNotifications }: { cloudStatus: CloudSyncStatus; onClose: () => void; onGuide: () => void; onData: () => void; onNotifications: () => void }) {
-  return <Modal kicker="ACCOUNT" title="설정" compact onClose={onClose}><button className="setting-row" type="button" onClick={onGuide}><span>사용 가이드</span><b>›</b></button><button className="setting-row" type="button" onClick={onData}><span>데이터 백업 및 복원<small>{cloudStatus === 'connected' ? '클라우드 연결됨' : '기기 저장'}</small></span><b>›</b></button><button className="setting-row" type="button" onClick={onNotifications}><span>알림 설정</span><b>›</b></button></Modal>;
+function SettingsPanel({ cloudStatus, tagCount, onClose, onGuide, onTags, onData, onNotifications }: { cloudStatus: CloudSyncStatus; tagCount: number; onClose: () => void; onGuide: () => void; onTags: () => void; onData: () => void; onNotifications: () => void }) {
+  return <Modal kicker="ACCOUNT" title="설정" compact onClose={onClose}><button className="setting-row" type="button" onClick={onGuide}><span>사용 가이드</span><b>›</b></button><button className="setting-row" type="button" onClick={onTags}><span>태그 관리<small>{tagCount ? `${tagCount}개 사용 중` : '건강관리·이직준비처럼 목표별로 묶어요'}</small></span><b>›</b></button><button className="setting-row" type="button" onClick={onData}><span>데이터 백업 및 복원<small>{cloudStatus === 'connected' ? '클라우드 연결됨' : '기기 저장'}</small></span><b>›</b></button><button className="setting-row" type="button" onClick={onNotifications}><span>알림 설정</span><b>›</b></button></Modal>;
 }
 
 const ONBOARDING_STEPS = [
@@ -595,6 +624,26 @@ function sortDailyItems(items: DisplayTodo[], order: string[]) {
   });
 }
 
+// 완료 토글·추가·삭제로 순서가 바뀔 때 카드가 순간이동하지 않고 새 위치로 미끄러지게 한다(FLIP).
+// dnd-kit은 드래그 중에만 위치를 측정하므로 드래그 밖 재정렬은 직접 처리하고, 드래그 결과와 날짜 전환은 건너뛴다.
+function useReorderAnimation(list: RefObject<HTMLElement | null>, order: string, scope: string, skip: MutableRefObject<boolean>) {
+  const positions = useRef(new Map<string, number>());
+  const previousScope = useRef(scope);
+  useLayoutEffect(() => {
+    const rows = [...list.current?.querySelectorAll<HTMLElement>('.swipe-item[data-order-key]') ?? []];
+    const next = new Map(rows.map((row) => [row.dataset.orderKey!, row.offsetTop]));
+    const animate = !skip.current && previousScope.current === scope && typeof Element.prototype.animate === 'function' && !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    skip.current = false;
+    previousScope.current = scope;
+    if (animate) rows.forEach((row) => {
+      const before = positions.current.get(row.dataset.orderKey!);
+      const delta = before === undefined ? 0 : before - row.offsetTop;
+      if (delta) row.animate([{ transform: `translateY(${delta}px)` }, { transform: 'translateY(0)' }], { duration: 240, easing: 'cubic-bezier(.22,.75,.28,1)' });
+    });
+    positions.current = next;
+  }, [list, order, scope, skip]);
+}
+
 function DateStrip({ selectedDate, pageCenter, today, snapshot, onSelect, onPage }: {
   selectedDate: string;
   pageCenter: string;
@@ -603,14 +652,16 @@ function DateStrip({ selectedDate, pageCenter, today, snapshot, onSelect, onPage
   onSelect: (date: string) => void;
   onPage: (date: string) => void;
 }) {
-  const [slideDirection, setSlideDirection] = useState<'previous' | 'next' | null>(null);
+  // 페이지 이동 경로(화살표, 스와이프, 오늘, 캘린더)와 무관하게 실제 이동 방향으로 슬라이드한다.
+  const [page, setPage] = useState<{ center: string; direction: SlideDirection | null }>({ center: pageCenter, direction: null });
+  if (page.center !== pageCenter) setPage({ center: pageCenter, direction: pageCenter < page.center ? 'previous' : 'next' });
+  const slideDirection = page.direction;
   const dates = useMemo(() => Array.from({ length: 7 }, (_, index) => {
     const date = addDays(pageCenter, index - 3);
     return { date, count: materializeItems(snapshot.todos, snapshot.records, date).length };
   }), [pageCenter, snapshot]);
 
   function movePage(amount: number) {
-    setSlideDirection(amount < 0 ? 'previous' : 'next');
     onPage(addDays(pageCenter, amount));
   }
 
@@ -644,7 +695,7 @@ export default function App() {
   const [copyDate, setCopyDate] = useState(today);
   const [notebookOpen, setNotebookOpen] = useState(false);
   const actionLock = useRef(false);
-  const gesture = useRef<{ id: number; x: number; y: number; vertical: boolean } | null>(null);
+  const gesture = useRef<{ id: number; x: number; y: number; vertical: boolean; strip: boolean } | null>(null);
   const suppressClick = useRef(false);
   const [deleteTarget, setDeleteTarget] = useState<DisplayTodo | null>(null);
   const [overlay, setOverlay] = useState<Overlay>(null);
@@ -661,6 +712,8 @@ export default function App() {
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [cloudStatus, setCloudStatus] = useState<CloudSyncStatus>('connecting');
+  const [tagBook, setTagBook] = useState<TagBook>(emptyTagBook);
+  const [tagFilter, setTagFilter] = useState<string | null>(null);
   const openerRef = useRef<HTMLElement | null>(null);
   const undoTimer = useRef<number | null>(null);
   const noticeTimer = useRef<number | null>(null);
@@ -688,6 +741,7 @@ export default function App() {
   useEffect(() => { void hasCompletedOnboarding().then((completed) => { if (!completed) setOnboardingOpen(true); }).catch(() => undefined); }, []);
   useEffect(() => { void loadManualOrders().then(setOrders).catch(() => undefined); }, []);
   useEffect(() => { void loadRecurringOrders().then(setRecurringOrders).catch(() => undefined); }, []);
+  useEffect(() => { void loadTagBook().then(setTagBook).catch(() => undefined); }, []);
   useEffect(() => {
     const update = () => setShowScrollTop(window.scrollY > 280);
     update(); window.addEventListener('scroll', update, { passive: true });
@@ -700,18 +754,37 @@ export default function App() {
     return () => document.removeEventListener('pointerdown', closeRows);
   }, []);
 
-  const inheritedRecurringOrder = useMemo(() => Object.entries(recurringOrders).filter(([date]) => date <= selectedDate).sort(([a], [b]) => b.localeCompare(a))[0]?.[1] ?? [], [recurringOrders, selectedDate]);
+  const [dayChange, setDayChange] = useState<{ date: string; direction: SlideDirection | null }>({ date: selectedDate, direction: null });
+  if (dayChange.date !== selectedDate) setDayChange({ date: selectedDate, direction: selectedDate < dayChange.date ? 'previous' : 'next' });
+  const inheritedRecurringOrder =useMemo(() => Object.entries(recurringOrders).filter(([date]) => date <= selectedDate).sort(([a], [b]) => b.localeCompare(a))[0]?.[1] ?? [], [recurringOrders, selectedDate]);
   const items = useMemo(() => sortDailyItems(materializeItems(snapshot.todos, snapshot.records, selectedDate), [...(orders[selectedDate] ?? []), ...inheritedRecurringOrder]), [inheritedRecurringOrder, orders, selectedDate, snapshot]);
+  const tags = useMemo(() => activeTags(tagBook), [tagBook]);
+  const tagsById = useMemo(() => new Map(tags.map((tag) => [tag.id, tag])), [tags]);
+  const activeFilter = tagFilter && tagsById.has(tagFilter) ? tagFilter : null;
+  const visibleItems = activeFilter ? items.filter((item) => item.tagIds.includes(activeFilter)) : items;
+  const tagOf = (item: DisplayTodo) => item.tagIds.map((id) => tagsById.get(id)).find((tag): tag is Tag => Boolean(tag)) ?? null;
   const activeItems = items.filter((item) => item.status !== 'skipped');
   const completed = activeItems.filter((item) => item.status === 'completed').length;
   const percent = activeItems.length ? Math.round(completed / activeItems.length * 100) : 0;
   const source = editing ? snapshot.todos.find((todo) => todo.id === editing.todoId) ?? null : null;
   const activeDragItem = activeDragId ? items.find((item) => item.key === activeDragId) ?? null : null;
+  const listRef = useRef<HTMLDivElement>(null);
+  const skipReorderAnimation = useRef(false);
+  useReorderAnimation(listRef, visibleItems.map((item) => item.key).join('|'), selectedDate, skipReorderAnimation);
   const dragSensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
+  // 보이는 주 밖의 날짜로 이동할 때만 날짜 줄을 넘긴다. 바로 옆 날짜는 한 주 단위로 넘겨 페이지 감각을 유지한다.
+  function goToDate(date: string) {
+    setSelectedDate(date);
+    setDatePageCenter((center) => {
+      const offset = daysBetween(center, date);
+      if (Math.abs(offset) <= 3) return center;
+      return Math.abs(offset) === 4 ? addDays(center, Math.sign(offset) * 7) : date;
+    });
+  }
   function showNotice(message: string) {
     setNotice(message);
     if (noticeTimer.current) window.clearTimeout(noticeTimer.current);
@@ -750,7 +823,7 @@ export default function App() {
       if (!editing) {
         const created = input as CreateTodoInput;
         await createTodo(created);
-        if (created.type === 'one_time') { setSelectedDate(created.dueDate); }
+        if (created.type === 'one_time') goToDate(created.dueDate);
       } else if (editing.type === 'one_time') {
         if ('type' in input && input.type === 'recurring') await convertOneTimeToRecurring(editing.todoId, input);
         else await updateOneTime(editing.todoId, input as TodoContentPatch);
@@ -758,6 +831,22 @@ export default function App() {
       else await updateRecurring(editing.seriesId!, scope === 'all' ? firstSeriesOccurrence(editing) : editing.targetDate, scope === 'date' ? 'date' : 'future', input as RecurringPatch);
       showNotice(editing ? '항목을 수정했어요.' : `${type === 'habit' ? '습관' : '할 일'}을 추가했어요.`);
     }, true);
+  }
+  // 태그 문서 변경(TAG-001). 실패하면 호출한 화면이 메시지를 보여주도록 예외를 그대로 던진다.
+  async function editTags(change: (book: TagBook) => TagBook): Promise<TagBook> {
+    if (actionLock.current) throw new Error('이전 저장이 끝난 뒤 다시 시도해 주세요.');
+    actionLock.current = true;
+    setBusy(true);
+    try {
+      const next = await updateTagBook(change);
+      setTagBook(next);
+      return next;
+    } finally { actionLock.current = false; setBusy(false); }
+  }
+  async function createTag(input: TagInput): Promise<Tag> {
+    let created: Tag | undefined;
+    await editTags((book) => { const result = addTags(book, [input], tagDeps); created = result.added[0]; return result.book; });
+    return created!;
   }
   async function commitDelete(item: DisplayTodo, scope: EditScope) {
     await run(async () => {
@@ -806,6 +895,7 @@ export default function App() {
     const to = current.indexOf(String(event.over.id));
     if (from < 0 || to < 0) return;
     const nextOrder = arrayMove(current, from, to);
+    skipReorderAnimation.current = true;
     setOrders((value) => ({ ...value, [selectedDate]: nextOrder }));
     const currentRecurringOrder = current.map(key => items.find(item => item.key === key)).filter((item): item is DisplayTodo => Boolean(item?.seriesId)).map(item => `series:${item.seriesId}`);
     const recurringOrder = nextOrder.map(key => items.find(item => item.key === key)).filter((item): item is DisplayTodo => Boolean(item?.seriesId)).map(item => `series:${item.seriesId}`);
@@ -832,6 +922,7 @@ export default function App() {
   function closeCalendar() { setCalendarOpen(false); queueMicrotask(() => openerRef.current?.focus()); }
   const taskProps = (item: DisplayTodo): TaskCardProps => ({
     item,
+    tag: tagOf(item),
     snapshot,
     busy,
     open: openItem === item.key,
@@ -848,8 +939,10 @@ export default function App() {
 
   function beginDateSwipe(event: ReactPointerEvent<HTMLElement>) {
     suppressClick.current = false;
-    if (gesture.current || !event.isPrimary || event.button !== 0 || overlay || calendarOpen || notebookOpen || activeDragId || (event.target as HTMLElement).closest('.swipe-item, button, input, textarea')) { gesture.current = null; return; }
-    gesture.current = { id: event.pointerId, x: event.clientX, y: event.clientY, vertical: false };
+    const target = event.target as HTMLElement;
+    const strip = Boolean(target.closest('.week-strip'));
+    if (gesture.current || !event.isPrimary || event.button !== 0 || overlay || calendarOpen || notebookOpen || activeDragId || (!strip && target.closest('.swipe-item, .tag-select, button, input, textarea'))) { gesture.current = null; return; }
+    gesture.current = { id: event.pointerId, x: event.clientX, y: event.clientY, vertical: false, strip };
   }
   function endDateSwipe(event: ReactPointerEvent<HTMLElement>) {
     const start = gesture.current;
@@ -859,8 +952,10 @@ export default function App() {
     const dy = event.clientY - start.y;
     if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
     suppressClick.current = true;
-    const next = addDays(selectedDate, dx < 0 ? 1 : -1);
-    setSelectedDate(next); setDatePageCenter(next); setOpenItem(null);
+    setOpenItem(null);
+    // 날짜 줄 위에서는 화살표 버튼처럼 주 단위로, 그 밖에서는 하루 단위로 넘긴다.
+    if (start.strip) setDatePageCenter((center) => addDays(center, dx < 0 ? 7 : -7));
+    else goToDate(addDays(selectedDate, dx < 0 ? 1 : -1));
   }
 
   return <>
@@ -869,23 +964,28 @@ export default function App() {
       <DateStrip selectedDate={selectedDate} pageCenter={datePageCenter} today={today} snapshot={snapshot} onSelect={setSelectedDate} onPage={setDatePageCenter} />
       {onboardingOpen && <Onboarding onFinish={finishOnboarding} />}
       <section className="progress-card" aria-labelledby="progress-title"><div className="progress-heading"><h2 id="progress-title">{selectedDate === today ? '오늘의 달성' : `${dateParts(selectedDate).month}월 ${dateParts(selectedDate).day}일의 달성`}</h2><div className="progress-numbers"><span>{completed}</span> / <span>{activeItems.length}</span><strong>{percent}%</strong></div></div><div className="progress-track" role="progressbar" aria-label={`${dateParts(selectedDate).month}월 ${dateParts(selectedDate).day}일 전체 진행률`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}><span style={{ width: `${percent}%` }} /></div><p className="progress-copy">{!activeItems.length ? '작은 계획 하나로 하루를 시작해 보세요.' : completed === activeItems.length ? '모두 해냈어요. 수고했어요!' : `${activeItems.length}개 중 ${completed}개 완료했어요.`}</p></section>
-      <section className="content-section" aria-labelledby="daily-heading"><div className="section-heading-row"><div><p className="section-kicker">DAILY LIST</p><h2 id="daily-heading">할 일</h2></div><button className="mini-add-button" type="button" onClick={(event) => { openerRef.current = event.currentTarget; setEditing(null); setOverlay('form'); }}>추가 <span aria-hidden="true">+</span></button></div>
+      <section className="content-section" aria-labelledby="daily-heading"><div className="section-heading-row"><div><p className="section-kicker">DAILY LIST</p><h2 id="daily-heading">할 일</h2></div><div className="section-actions">{tags.length > 0 && <TagSelect tags={tags} value={activeFilter} onChange={setTagFilter} />}<button className="mini-add-button" type="button" onClick={(event) => { openerRef.current = event.currentTarget; setEditing(null); setOverlay('form'); }}>추가 <span aria-hidden="true">+</span></button></div></div>
         {error && <div className="error-banner" role="alert"><strong>저장 또는 조회에 문제가 생겼어요.</strong><span>{error}</span><button type="button" onClick={() => void refresh().then(() => setError('')).catch(() => undefined)}>다시 불러오기</button></div>}
         <DndContext sensors={dragSensors} collisionDetection={closestCenter} onDragStart={startDrag} onDragCancel={() => setActiveDragId(null)} onDragEnd={finishDrag}>
-          <SortableContext items={items.map((item) => item.key)} strategy={verticalListSortingStrategy}>
-            <div className="unified-list" aria-live="polite" aria-busy={!ready || busy}>{!ready && <div className="empty-state"><strong>목록을 불러오는 중이에요</strong><p>기기에 저장된 할 일을 확인하고 있어요.</p></div>}{ready && !items.length && <div className="empty-state"><strong>이날의 항목이 없어요</strong><p>추가 버튼을 눌러 첫 할 일이나 습관을 적어보세요.</p></div>}{items.map((item) => <SortableTaskCard key={item.key} {...taskProps(item)} />)}</div>
+          <SortableContext items={visibleItems.map((item) => item.key)} strategy={verticalListSortingStrategy}>
+            <div ref={listRef} className="unified-list" aria-live="polite" aria-busy={!ready || busy}><div key={selectedDate} className={`day-items ${dayChange.direction ? `slide-${dayChange.direction}` : ''}`}>{!ready && <div className="empty-state"><strong>목록을 불러오는 중이에요</strong><p>기기에 저장된 할 일을 확인하고 있어요.</p></div>}{ready && !items.length && <div className="empty-state"><strong>이날의 항목이 없어요</strong><p>추가 버튼을 눌러 첫 할 일이나 습관을 적어보세요.</p></div>}{ready && items.length > 0 && !visibleItems.length && <div className="empty-state"><strong>이 태그의 항목이 없어요</strong><p>다른 태그를 고르거나 전체 목록을 확인해 보세요.</p><button className="empty-state-action" type="button" onClick={() => setTagFilter(null)}>전체 보기</button></div>}{visibleItems.map((item) => <SortableTaskCard key={item.key} {...taskProps(item)} />)}</div></div>
           </SortableContext>
-          <DragOverlay>{activeDragItem && <DraggedTaskCard item={activeDragItem} snapshot={snapshot} />}</DragOverlay>
+          <DragOverlay>{activeDragItem && <DraggedTaskCard item={activeDragItem} tag={tagOf(activeDragItem)} snapshot={snapshot} />}</DragOverlay>
         </DndContext>
       </section><div className="bottom-space" aria-hidden="true" />
     </main>
     {notebookOpen && <Notebook onClose={() => { setNotebookOpen(false); queueMicrotask(() => openerRef.current?.focus()); }} />}
-    {overlay === 'detail' && viewing && <Modal kicker={viewing.category === 'habit' ? 'ROUTINE' : 'TODO'} title="상세보기" onClose={closeOverlay} headerAction={<button className="icon-button" type="button" aria-label="복사" title="복사" onClick={() => { setCopyDate(viewing.targetDate); setError(''); setOverlay('copy'); }}><ActionIcon name="copy" /></button>}><div className="todo-detail"><h3>{viewing.emoji} {viewing.title}</h3><p>{formatHeading(viewing.targetDate)}{viewing.dueTime ? ` · ${viewing.dueTime}` : ''}</p><h4>메모</h4><p className="detail-memo">{viewing.memo || '작성된 메모가 없어요.'}</p></div></Modal>}
-{overlay === 'copy' && viewing && <Modal kicker="COPY" title="다른 날짜로 복사" compact onClose={closeOverlay}><form className="copy-form" onSubmit={event => { event.preventDefault(); const targetDate = String(new FormData(event.currentTarget).get('copyDate')); void run(async () => { await createTodo({ type: 'one_time', category: viewing.category, title: viewing.title, memo: viewing.memo, emoji: viewing.emoji, priority: viewing.priority, dueTime: viewing.dueTime, dueDate: targetDate }); setSelectedDate(targetDate); setDatePageCenter(targetDate); showNotice('선택한 날짜에 복사했어요.'); }, true).catch(() => undefined); }}><p>내용과 시간을 그대로 복사해 미완료 항목으로 한 번 등록해요. 반복 설정과 완료 기록은 복사하지 않아요.</p><SchedulePicker name="copyDate" label="복사할 날짜" value={copyDate} onChange={setCopyDate} disabled={busy} />{error && <p role="alert">{error}</p>}<button disabled={busy || !copyDate} type="submit">{busy ? '복사 중…' : '이 날짜에 복사'}</button></form></Modal>}
-    {calendarOpen && <CalendarView anchor={calendarAnchor} selected={calendarSelected} today={today} snapshot={snapshot} onMove={(amount) => setCalendarAnchor(changeMonth(calendarAnchor, amount))} onSelect={(date) => { setCalendarSelected(date); setCalendarAnchor(`${date.slice(0, 7)}-01`); }} onToday={() => { setCalendarSelected(today); setCalendarAnchor(`${today.slice(0, 7)}-01`); }} onOpenDate={() => { setSelectedDate(calendarSelected); closeCalendar(); }} onClose={closeCalendar} />}
-    {overlay === 'form' && <TodoForm selectedDate={selectedDate} editing={editing} source={source} saving={busy} onCancel={closeOverlay} onSubmit={submit} />}
+    {overlay === 'detail' && viewing && <Modal kicker={viewing.category === 'habit' ? 'ROUTINE' : 'TODO'} title="상세보기" onClose={closeOverlay} headerAction={<button className="icon-button" type="button" aria-label="복사" title="복사" onClick={() => { setCopyDate(viewing.targetDate); setError(''); setOverlay('copy'); }}><ActionIcon name="copy" /></button>}><div className="todo-detail"><h3>{viewing.emoji} {viewing.title}</h3><p>{formatHeading(viewing.targetDate)}{viewing.dueTime ? ` · ${viewing.dueTime}` : ''}</p>{tagOf(viewing) && <div className="detail-tag"><TagChip tag={tagOf(viewing)!} /></div>}<h4>메모</h4><p className="detail-memo">{viewing.memo || '작성된 메모가 없어요.'}</p></div></Modal>}
+{overlay === 'copy' && viewing && <Modal kicker="COPY" title="다른 날짜로 복사" compact onClose={closeOverlay}><form className="copy-form" onSubmit={event => { event.preventDefault(); const targetDate = String(new FormData(event.currentTarget).get('copyDate')); void run(async () => { await createTodo({ type: 'one_time', category: viewing.category, title: viewing.title, memo: viewing.memo, emoji: viewing.emoji, priority: viewing.priority, dueTime: viewing.dueTime, dueDate: targetDate, tagIds: viewing.tagIds }); goToDate(targetDate); showNotice('선택한 날짜에 복사했어요.'); }, true).catch(() => undefined); }}><p>내용과 시간을 그대로 복사해 미완료 항목으로 한 번 등록해요. 반복 설정과 완료 기록은 복사하지 않아요.</p><SchedulePicker name="copyDate" label="복사할 날짜" value={copyDate} onChange={setCopyDate} disabled={busy} />{error && <p role="alert">{error}</p>}<button disabled={busy || !copyDate} type="submit">{busy ? '복사 중…' : '이 날짜에 복사'}</button></form></Modal>}
+    {calendarOpen && <CalendarView anchor={calendarAnchor} selected={calendarSelected} today={today} snapshot={snapshot} onMove={(amount) => setCalendarAnchor(changeMonth(calendarAnchor, amount))} onSelect={(date) => { setCalendarSelected(date); setCalendarAnchor(`${date.slice(0, 7)}-01`); }} onToday={() => { setCalendarSelected(today); setCalendarAnchor(`${today.slice(0, 7)}-01`); }} onOpenDate={() => { goToDate(calendarSelected); closeCalendar(); }} onClose={closeCalendar} />}
+    {overlay === 'form' && <TodoForm selectedDate={selectedDate} editing={editing} source={source} saving={busy} tagBook={tagBook} defaultTagId={activeFilter ?? ''} onCreateTag={createTag} onRenameTag={(id, name) => editTags((book) => updateTag(book, id, { name, color: activeTags(book).find((tag) => tag.id === id)?.color ?? 'gray' }, tagDeps))} onDeleteTag={(id) => editTags((book) => deleteTag(book, id, tagDeps))} onCancel={closeOverlay} onSubmit={submit} />}
     {overlay === 'delete' && deleteTarget && <Modal kicker="REPEAT ITEM" title="어디에서 삭제할까요?" compact onClose={closeOverlay}><div className="scope-action-list"><button type="button" disabled={busy} onClick={() => void commitDelete(deleteTarget, 'date').catch(() => undefined)}><strong>오늘만</strong><small>선택한 날짜에서만 숨겨요</small></button><button type="button" disabled={busy} onClick={() => void commitDelete(deleteTarget, 'future').catch(() => undefined)}><strong>오늘 이후</strong><small>이전 기록은 그대로 남겨요</small></button><button type="button" disabled={busy} onClick={() => void commitDelete(deleteTarget, 'all').catch(() => undefined)}><strong>전체 반복</strong><small>모든 날짜에서 삭제해요</small></button></div></Modal>}
-    {overlay === 'settings' && <SettingsPanel cloudStatus={cloudStatus} onClose={closeOverlay} onGuide={() => { setOverlay(null); setOnboardingOpen(true); }} onData={() => { setError(''); setOverlay('data'); }} onNotifications={() => { closeOverlay(); showNotice('알림 설정은 다음 단계에서 제공할 예정이에요.'); }} />}
+    {overlay === 'settings' && <SettingsPanel cloudStatus={cloudStatus} tagCount={tags.length} onTags={() => setOverlay('tags')} onClose={closeOverlay} onGuide={() => { setOverlay(null); setOnboardingOpen(true); }} onData={() => { setError(''); setOverlay('data'); }} onNotifications={() => { closeOverlay(); showNotice('알림 설정은 다음 단계에서 제공할 예정이에요.'); }} />}
+    {overlay === 'tags' && <Modal kicker="TAGS" title="태그 관리" compact onClose={closeOverlay}><TagManager book={tagBook} busy={busy}
+      onAddMany={(inputs) => editTags((book) => addTags(book, inputs, tagDeps).book)}
+      onUpdate={(id, patch) => editTags((book) => updateTag(book, id, patch, tagDeps))}
+      onDelete={(id) => editTags((book) => deleteTag(book, id, tagDeps))}
+      onMove={(id, amount) => editTags((book) => moveTag(book, id, amount, tagDeps))} /></Modal>}
     {overlay === 'data' && <DataPanel busy={busy} error={error} cloudStatus={cloudStatus} onClose={closeOverlay} onExport={() => void exportData()} onImport={(file) => void prepareImport(file)} onReset={() => setOverlay('reset')} />}
     {overlay === 'import' && pendingImport && <Modal kicker="DATA" title="백업으로 복원" compact onClose={closeOverlay}><p className="scope-copy"><strong>{pendingImport.name}</strong>의 데이터로 현재 기기 내용을 모두 바꿉니다. 검증된 파일만 한 번에 반영되며 되돌릴 수 없어요.</p><button className="destructive-button" type="button" disabled={busy} onClick={() => void run(async () => { await restoreBackup(pendingImport.text); showNotice('백업 데이터를 복원했어요.'); }, true).catch(() => undefined)}>현재 데이터 교체</button></Modal>}
 {overlay === 'reset' && <Modal kicker="DATA" title="모든 데이터 삭제" compact onClose={closeOverlay}><p className="scope-copy">할 일, 반복 수행 기록과 메모장을 이 기기에서 모두 삭제합니다. 이 작업은 실행 취소할 수 없어요.</p><button className="destructive-button" type="button" disabled={busy} onClick={() => void run(async () => { await clearAllData(); showNotice('모든 데이터를 삭제했어요.'); }, true).catch(() => undefined)}>모든 데이터 삭제</button></Modal>}

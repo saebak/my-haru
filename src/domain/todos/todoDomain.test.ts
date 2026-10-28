@@ -63,7 +63,7 @@ describe('recurrence domain', () => {
 describe('list filtering and sorting', () => {
   const base: DisplayTodo = {
     key: 'a', todoId: 'a', type: 'one_time', category: 'todo', seriesId: null, targetDate: '2026-09-11', title: 'A', memo: '', emoji: '✅',
-    priority: 'low', dueTime: null, status: 'pending', completedAt: null, createdAt: '2026-09-01T00:00:00.000Z', revision: null,
+    priority: 'low', dueTime: null, status: 'pending', completedAt: null, tagIds: [], createdAt: '2026-09-01T00:00:00.000Z', revision: null,
   };
   it('filters by status and priority and orders high priority first', () => {
     const values = [base, { ...base, key: 'b', todoId: 'b', priority: 'high' as const }, { ...base, key: 'c', todoId: 'c', priority: 'high' as const, status: 'completed' as const }];

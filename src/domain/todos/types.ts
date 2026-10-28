@@ -32,6 +32,8 @@ export type TodoData = {
   repeatStartDate: CalendarDate | null;
   repeatEndDate: CalendarDate | null;
   timezone: 'Asia/Seoul' | null;
+  /** 연결된 태그 ID. 구버전 데이터에는 없을 수 있으며 현재 UI는 최대 1개를 사용한다. */
+  tagIds?: string[];
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
@@ -64,6 +66,7 @@ export type DisplayTodo = {
   dueTime: string | null;
   status: TodoRecordStatus;
   completedAt: string | null;
+  tagIds: string[];
   createdAt: string;
   revision: number | null;
 };
@@ -76,6 +79,7 @@ export type TodoContentPatch = {
   priority: Priority;
   dueDate: CalendarDate;
   dueTime: string | null;
+  tagIds?: string[];
 };
 
 export type RecurringPatch = Omit<TodoContentPatch, 'dueDate'> & {
