@@ -39,7 +39,7 @@ import { TagChip, TagField, TagManager, TagSelect } from './components/Tags';
 import { activeTags, addTags, deleteTag, emptyTagBook, moveTag, updateTag, type Tag, type TagBook, type TagInput } from './domain/tags';
 
 import { addDays, daysBetween, formatDate, monthGrid, parseDate, todayInSeoul } from './domain/todos/date';
-import { materializeItems, occursOn, TodoError } from './domain/todos/todoDomain';
+import { completionStreak, materializeItems, occursOn, TodoError } from './domain/todos/todoDomain';
 import type {
   CreateTodoInput,
   DeleteReceipt,
@@ -351,20 +351,18 @@ function TodoForm({
   </Modal>;
 }
 
+const SWIPE_ACTION_WIDTH = 112;
+/** 이 속도(px/ms)보다 빠르게 튕기면 이동 거리와 관계없이 그 방향으로 열거나 닫는다. */
+const SWIPE_FLICK_VELOCITY = 0.35;
+/** 열림 범위를 넘어 끌면 저항감을 줘 손가락보다 덜 움직이게 한다. */
+function rubberBand(offset: number) {
+  if (offset > 0) return offset * 0.25;
+  if (offset < -SWIPE_ACTION_WIDTH) return -SWIPE_ACTION_WIDTH + (offset + SWIPE_ACTION_WIDTH) * 0.25;
+  return offset;
+}
+
 function streakFor(snapshot: Snapshot, item: DisplayTodo) {
-  if (!item.seriesId) return 0;
-  let cursor = item.targetDate;
-  let streak = 0;
-  for (let checked = 0; checked < 365; checked += 1) {
-    const occurs = snapshot.todos.some((todo) => todo.seriesId === item.seriesId && occursOn(todo, cursor));
-    if (occurs) {
-      const occurrence = materializeItems(snapshot.todos, snapshot.records, cursor).find((value) => value.seriesId === item.seriesId);
-      if (occurrence?.status !== 'completed') break;
-      streak += 1;
-    }
-    cursor = addDays(cursor, -1);
-  }
-  return streak;
+  return item.seriesId ? completionStreak(snapshot.todos, snapshot.records, item.seriesId, item.targetDate) : 0;
 }
 
 type TaskCardProps = {
@@ -394,34 +392,53 @@ function TaskCard({
   const routine = itemType(item) === 'habit';
   const done = item.status === 'completed';
   const skipped = item.status === 'skipped';
-  const rowGesture = useRef<{ pointerId: number; x: number; y: number; vertical: boolean } | null>(null);
+  const rowGesture = useRef<{ pointerId: number; x: number; y: number; base: number; offset: number; axis: 'x' | 'y' | null; lastX: number; lastT: number; velocity: number } | null>(null);
   const rowClick = useRef(false);
 
+  // 터치 시작 시점에 카드가 포인터를 잡는다. 이동 중에 잡으면 손가락이 처음 닿은 자식 요소의 암묵적 capture가 풀리며
+  // lostpointercapture가 버블링돼 스와이프가 중간에 취소되므로(실기기 회귀), 시작할 때만 잡는다.
   function startRowSwipe(event: ReactPointerEvent<HTMLElement>) {
     rowClick.current = false;
     if (!event.isPrimary || event.button !== 0 || (event.target as HTMLElement).closest('button:not(.item-detail-button)')) return;
-    rowGesture.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, vertical: false };
+    const base = open ? -SWIPE_ACTION_WIDTH : 0;
+    rowGesture.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, base, offset: base, axis: null, lastX: event.clientX, lastT: event.timeStamp, velocity: 0 };
+    event.currentTarget.setPointerCapture?.(event.pointerId);
   }
-  function endRowSwipe(event: ReactPointerEvent<HTMLElement>) {
-    const start = rowGesture.current;
-    rowGesture.current = null;
-    if (start && event.currentTarget.hasPointerCapture?.(start.pointerId)) event.currentTarget.releasePointerCapture(start.pointerId);
-    event.currentTarget.style.transform = '';
-    event.currentTarget.parentElement?.classList.remove('is-swiping');
-    if (!start || start.pointerId !== event.pointerId || start.vertical) return;
-    const dx = event.clientX - start.x;
-    if (Math.abs(dx) > 42 && Math.abs(dx) > Math.abs(event.clientY - start.y) * 1.5) {
-      rowClick.current = true;
-      onOpen(dx < 0);
-      window.setTimeout(() => { rowClick.current = false; }, 0);
+  function moveRowSwipe(event: ReactPointerEvent<HTMLElement>) {
+    const gesture = rowGesture.current;
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
+    const dx = event.clientX - gesture.x;
+    const dy = event.clientY - gesture.y;
+    if (!gesture.axis) {
+      if (Math.max(Math.abs(dx), Math.abs(dy)) < 6) return;
+      gesture.axis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
+      if (gesture.axis === 'y') return;
+      event.currentTarget.style.transition = 'none';
+      event.currentTarget.parentElement?.classList.add('is-swiping');
     }
+    if (gesture.axis !== 'x') return;
+    event.preventDefault();
+    const elapsed = event.timeStamp - gesture.lastT;
+    if (elapsed > 0) gesture.velocity = 0.8 * ((event.clientX - gesture.lastX) / elapsed) + 0.2 * gesture.velocity;
+    gesture.lastX = event.clientX;
+    gesture.lastT = event.timeStamp;
+    gesture.offset = rubberBand(gesture.base + dx);
+    event.currentTarget.style.transform = `translateX(${gesture.offset}px)`;
   }
-  function cancelRowSwipe(event: ReactPointerEvent<HTMLElement>) {
-    const start = rowGesture.current;
+  function finishRowSwipe(event: ReactPointerEvent<HTMLElement>, cancelled: boolean) {
+    const gesture = rowGesture.current;
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
     rowGesture.current = null;
-    if (start && event.currentTarget.hasPointerCapture?.(start.pointerId)) event.currentTarget.releasePointerCapture(start.pointerId);
+    if (event.currentTarget.hasPointerCapture?.(gesture.pointerId)) event.currentTarget.releasePointerCapture(gesture.pointerId);
+    // 인라인 값을 지우면 CSS transition이 현재 손가락 위치에서 열림·닫힘 위치까지 이어서 움직인다.
+    event.currentTarget.style.transition = '';
     event.currentTarget.style.transform = '';
     event.currentTarget.parentElement?.classList.remove('is-swiping');
+    if (gesture.axis !== 'x') return;
+    rowClick.current = true;
+    window.setTimeout(() => { rowClick.current = false; }, 0);
+    const flick = Math.abs(gesture.velocity) > SWIPE_FLICK_VELOCITY;
+    onOpen(cancelled ? open : flick ? gesture.velocity < 0 : gesture.offset < -SWIPE_ACTION_WIDTH / 2);
   }
 
   return <div ref={setNodeRef} style={sortableStyle} className={`swipe-item ${open ? 'is-open' : ''} ${dragging ? 'is-dragging' : ''}`} data-id={item.todoId} data-type={routine ? 'habit' : 'todo'} data-order-key={item.key}>
@@ -429,7 +446,7 @@ function TaskCard({
       <button className="edit-action" type="button" data-action="edit" tabIndex={open ? 0 : -1} disabled={busy} onClick={(event) => onEdit(event.currentTarget)}>수정</button>
       <button className="delete-action" type="button" data-action="delete" tabIndex={open ? 0 : -1} disabled={busy} onClick={(event) => onDelete(event.currentTarget)}>삭제</button>
     </div>
-<article className={`item-card ${done ? 'is-done' : ''} ${skipped ? 'is-skipped' : ''}`} aria-label={`${item.title}${done ? ', 완료됨' : ''}`} onKeyDown={event => { if (event.key === 'F10' && event.shiftKey) { event.preventDefault(); onOpen(true); const row = event.currentTarget.parentElement; window.setTimeout(() => row?.querySelector<HTMLButtonElement>('[data-action="edit"]')?.focus(), 0); } }} onPointerDown={startRowSwipe} onPointerMove={event => { const start = rowGesture.current; if (!start || start.pointerId !== event.pointerId) return; const dx = event.clientX - start.x; const dy = event.clientY - start.y; if (Math.abs(dy) > 12 && Math.abs(dy) > Math.abs(dx)) start.vertical = true; if (!start.vertical && Math.abs(dx) > 8) { event.preventDefault(); if (!event.currentTarget.hasPointerCapture?.(event.pointerId)) event.currentTarget.setPointerCapture?.(event.pointerId); event.currentTarget.parentElement?.classList.add('is-swiping'); event.currentTarget.style.transform = `translateX(${Math.max(-112, Math.min(0, (open ? -112 : 0) + dx))}px)`; } }} onPointerUp={endRowSwipe} onPointerCancel={cancelRowSwipe} onLostPointerCapture={cancelRowSwipe} onClickCapture={event => { if (rowClick.current && event.detail !== 0) { event.preventDefault(); event.stopPropagation(); rowClick.current = false; } }}>
+<article className={`item-card ${done ? 'is-done' : ''} ${skipped ? 'is-skipped' : ''}`} aria-label={`${item.title}${done ? ', 완료됨' : ''}`} onKeyDown={event => { if (event.key === 'F10' && event.shiftKey) { event.preventDefault(); onOpen(true); const row = event.currentTarget.parentElement; window.setTimeout(() => row?.querySelector<HTMLButtonElement>('[data-action="edit"]')?.focus(), 0); } }} onPointerDown={startRowSwipe} onPointerMove={moveRowSwipe} onPointerUp={event => finishRowSwipe(event, false)} onPointerCancel={event => finishRowSwipe(event, true)} onLostPointerCapture={event => { if (event.target === event.currentTarget) finishRowSwipe(event, false); }} onClickCapture={event => { if (rowClick.current && event.detail !== 0) { event.preventDefault(); event.stopPropagation(); rowClick.current = false; } }}>
       <div className="item-icon" aria-hidden="true">{item.emoji || '💡'}</div>
       <button type="button" className="item-body item-detail-button" aria-label={`${item.title} 상세보기`} onClick={event => onView(event.currentTarget)}><span className="item-title-row"><strong className="item-title">{item.title}</strong><span className={`item-type-tag ${routine ? 'routine' : 'todo'}`}>{routine ? 'ROUTINE' : 'TODO'}</span></span>{item.memo && <span className="item-memo">{item.memo}</span>}<span className="item-meta">{tag && <TagChip tag={tag} />}{routine && done && <span className="streak-badge">🔥 {streakFor(snapshot, item)}일 연속</span>}{!routine && <span className={`priority-mark ${item.priority}`}>{PRIORITY_LABEL[item.priority]}</span>}{item.dueTime && <span>{item.dueTime}</span>}{skipped && <span>건너뜀</span>}{done && <span className="completion-badge">✓ 완료됨</span>}</span></button>
       <button className={`item-check ${done ? 'is-done' : ''}`} type="button" data-action="toggle" disabled={busy} onClick={onToggle} aria-label={`${item.title} ${done ? '완료 취소' : '완료'}`}>✓</button>

@@ -1,4 +1,4 @@
-import { daysBetween, isoWeekday, parseDate, startOfWeek } from './date';
+import { addDays, daysBetween, isoWeekday, parseDate, startOfWeek } from './date';
 import type { DisplayTodo, ItemCategory, ListQuery, TodoData, TodoRecordData } from './types';
 
 export type TodoErrorCode =
@@ -141,6 +141,26 @@ export function materializeItems(todos: TodoData[], records: TodoRecordData[], d
     });
   }
   return items;
+}
+
+/**
+ * date부터 거슬러 올라가며 반복 일정이 연속으로 완료된 발생 수를 센다. 발생하지 않는 날은 건너뛰고,
+ * 미완료·건너뜀·숨김 발생에서 멈춘다. 해당 series의 정의와 기록만 보므로 목록을 날짜마다 다시 만들지 않는다.
+ */
+export function completionStreak(todos: TodoData[], records: TodoRecordData[], seriesId: string, date: string, maxDays = 365): number {
+  const series = todos.filter((todo) => todo.seriesId === seriesId && !todo.deletedAt);
+  const byDate = new Map(records.filter((record) => record.seriesId === seriesId && !record.deletedAt).map((record) => [record.targetDate, record]));
+  let cursor = date;
+  let streak = 0;
+  for (let checked = 0; checked < maxDays; checked += 1) {
+    if (series.some((todo) => occursOn(todo, cursor))) {
+      const record = byDate.get(cursor);
+      if (!record || record.hidden || record.status !== 'completed') break;
+      streak += 1;
+    }
+    cursor = addDays(cursor, -1);
+  }
+  return streak;
 }
 
 const priorityRank = { high: 0, normal: 1, low: 2 } as const;

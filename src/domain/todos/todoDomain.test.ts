@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import { addDays, monthGrid } from './date';
-import { filterAndSortItems, materializeItems, occursOn, resolveTodoCategory } from './todoDomain';
-import type { DisplayTodo, TodoData } from './types';
+import { completionStreak, filterAndSortItems, materializeItems, occursOn, resolveTodoCategory } from './todoDomain';
+import type { DisplayTodo, TodoData, TodoRecordData } from './types';
 
 function recurring(overrides: Partial<TodoData> = {}): TodoData {
   return {
@@ -84,5 +84,25 @@ describe('list filtering and sorting', () => {
     const elapsed = performance.now() - startedAt;
     expect(result).toHaveLength(333);
     expect(elapsed).toBeLessThan(500);
+  });
+});
+
+describe('completion streak', () => {
+  const stamp = '2026-10-01T00:00:00.000Z';
+  const habit: TodoData = {
+    id: 'h1', type: 'recurring', category: 'habit', seriesId: 's1', revision: 1, title: '물', memo: '', emoji: '💧', status: null, priority: 'normal',
+    dueDate: null, dueTime: null, completedAt: null, repeatFrequency: 'interval_days', repeatInterval: 2, repeatWeekdays: [], repeatStartDate: '2026-10-01',
+    repeatEndDate: null, timezone: 'Asia/Seoul', createdAt: stamp, updatedAt: stamp, deletedAt: null,
+  };
+  const record = (targetDate: string, status: TodoRecordData['status'], hidden = false): TodoRecordData => ({
+    id: `r-${targetDate}`, seriesId: 's1', targetDate, status, completedAt: status === 'completed' ? stamp : null, overrides: null, hidden, createdAt: stamp, updatedAt: stamp, deletedAt: null,
+  });
+
+  it('counts consecutive completed occurrences, skipping non-occurring days and stopping at a miss or hidden day', () => {
+    const records = [record('2026-10-01', 'completed'), record('2026-10-03', 'completed'), record('2026-10-05', 'completed')];
+    expect(completionStreak([habit], records, 's1', '2026-10-05')).toBe(3);
+    expect(completionStreak([habit], records.filter((value) => value.targetDate !== '2026-10-03'), 's1', '2026-10-05')).toBe(1);
+    expect(completionStreak([habit], [...records.slice(0, 2), record('2026-10-05', 'completed', true)], 's1', '2026-10-05')).toBe(0);
+    expect(completionStreak([habit], [record('2026-10-03', 'skipped'), record('2026-10-05', 'completed')], 's1', '2026-10-05')).toBe(1);
   });
 });

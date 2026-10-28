@@ -479,6 +479,34 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: '수정' })).toHaveAttribute('tabindex', '0');
   });
 
+  it('keeps a touch swipe going when an inner element loses implicit pointer capture, and opens on a quick flick', async () => {
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date());
+    vi.mocked(loadSnapshot).mockResolvedValue({ todos: [{
+      id: 'todo-1', type: 'one_time', category: 'todo', seriesId: null, revision: null, title: '장보기', memo: '', emoji: '🛒', status: 'pending', priority: 'normal',
+      dueDate: today, dueTime: null, completedAt: null, repeatFrequency: null, repeatInterval: null, repeatWeekdays: [], repeatStartDate: null,
+      repeatEndDate: null, timezone: null, createdAt: '2026-10-27T00:00:00.000Z', updatedAt: '2026-10-27T00:00:00.000Z', deletedAt: null,
+    }], records: [] });
+    const { container } = render(<App />);
+    const card = await screen.findByLabelText('장보기');
+    const row = container.querySelector<HTMLElement>('.swipe-item')!;
+    const inner = screen.getByRole('button', { name: '장보기 상세보기' });
+    function pointer(target: Element, type: string, x: number, timeStamp: number) {
+      const event = new MouseEvent(type, { bubbles: true, clientX: x, clientY: 100, button: 0 });
+      Object.defineProperties(event, { pointerId: { value: 3 }, isPrimary: { value: true }, timeStamp: { value: timeStamp } });
+      fireEvent(target, event);
+    }
+    pointer(inner, 'pointerdown', 250, 0);
+    pointer(inner, 'pointermove', 230, 16);
+    // 실기기에서는 카드가 capture를 가져가면 손가락이 처음 닿은 자식에서 lostpointercapture가 올라온다.
+    pointer(inner, 'lostpointercapture', 230, 17);
+    expect(row).toHaveClass('is-swiping');
+    pointer(inner, 'pointermove', 200, 32);
+    expect(card.style.transform).toBe('translateX(-50px)');
+    pointer(inner, 'pointerup', 200, 33);
+    expect(row).toHaveClass('is-open');
+    expect(card.style.transform).toBe('');
+  });
+
   it('shows a compact scroll-to-top button only after scrolling down', async () => {
     Object.defineProperty(window, 'scrollY', { configurable: true, value: 0 });
     const scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation(() => undefined);
