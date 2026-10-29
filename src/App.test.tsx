@@ -156,6 +156,21 @@ describe('App', () => {
       expect(updateRecurring).not.toHaveBeenCalled();
     });
 
+    it('suggests an unused color for a new tag in the popup and lets the user pick another', async () => {
+      render(<App />);
+      await screen.findByText('이날의 항목이 없어요');
+      fireEvent.click(screen.getByRole('button', { name: '추가' }));
+      fireEvent.click(screen.getByRole('button', { name: '태그 선택 태그 없음' }));
+      expect(screen.queryByRole('radio', { name: '보라' })).not.toBeInTheDocument();
+      fireEvent.change(screen.getByLabelText('새 태그 이름'), { target: { value: '독서' } });
+      expect(screen.getByRole('radio', { name: '초록' })).toBeChecked();
+      expect(screen.getAllByRole('radio', { name: /^(초록|파랑|남색|회색|갈색|노랑|분홍|보라|주황|청록)$/ })).toHaveLength(10);
+      fireEvent.click(screen.getByRole('radio', { name: '보라' }));
+      fireEvent.click(within(screen.getByRole('dialog', { name: '태그 선택' })).getByRole('button', { name: '추가' }));
+      await waitFor(() => expect(book.tags[0]).toMatchObject({ name: '독서', color: 'purple' }));
+      expect(screen.getByRole('button', { name: '태그 선택 독서' })).toHaveClass('tag-purple');
+    });
+
     it('renames and deletes tags from the form tag popup', async () => {
       book = addTags(book, [TAG_PRESETS[0], TAG_PRESETS[2]], { now: () => new Date(stamp), uuid: () => crypto.randomUUID() }).book;
       render(<App />);
@@ -166,24 +181,28 @@ describe('App', () => {
       // 이름 수정 영역이 바깥 등록 폼을 제출하면 실제 브라우저에서 페이지가 새로고침됐다.
       const outerSubmit = vi.fn((event: Event) => event.preventDefault());
       screen.getByRole('dialog', { name: '무엇을 시작할까요?' }).querySelector('form')!.addEventListener('submit', outerSubmit);
-      fireEvent.click(screen.getByRole('button', { name: '건강관리 이름 수정' }));
-      expect(screen.getByRole('group', { name: '건강관리 이름 수정' }).closest('form')).toBe(screen.getByRole('dialog', { name: '무엇을 시작할까요?' }).querySelector('form'));
+      fireEvent.click(screen.getByRole('button', { name: '건강관리 수정' }));
+      expect(screen.getByRole('group', { name: '건강관리 수정' }).closest('form')).toBe(screen.getByRole('dialog', { name: '무엇을 시작할까요?' }).querySelector('form'));
       fireEvent.change(screen.getByLabelText('건강관리 새 이름'), { target: { value: '운동' } });
       fireEvent.click(screen.getByRole('button', { name: '저장' }));
-      expect(await screen.findByRole('button', { name: '운동 이름 수정' })).toBeInTheDocument();
-      fireEvent.click(screen.getByRole('button', { name: '운동 이름 수정' }));
+      expect(await screen.findByRole('button', { name: '운동 수정' })).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: '운동 수정' }));
       fireEvent.change(screen.getByLabelText('운동 새 이름'), { target: { value: '헬스' } });
       fireEvent.keyDown(screen.getByLabelText('운동 새 이름'), { key: 'Enter' });
-      expect(await screen.findByRole('button', { name: '헬스 이름 수정' })).toBeInTheDocument();
-      fireEvent.click(screen.getByRole('button', { name: '헬스 이름 수정' }));
+      expect(await screen.findByRole('button', { name: '헬스 수정' })).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: '헬스 수정' }));
       fireEvent.change(screen.getByLabelText('헬스 새 이름'), { target: { value: '운동' } });
       fireEvent.click(screen.getByRole('button', { name: '저장' }));
-      expect(await screen.findByRole('button', { name: '운동 이름 수정' })).toBeInTheDocument();
+      expect(await screen.findByRole('button', { name: '운동 수정' })).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: '운동 수정' }));
+      fireEvent.click(within(screen.getByRole('group', { name: '운동 수정' })).getByRole('radio', { name: '분홍' }));
+      fireEvent.click(screen.getByRole('button', { name: '저장' }));
+      await waitFor(() => expect(activeTags(book).find((tag) => tag.name === '운동')?.color).toBe('pink'));
       expect(outerSubmit).not.toHaveBeenCalled();
       expect(createTodo).not.toHaveBeenCalled();
       fireEvent.click(screen.getByRole('button', { name: '이직준비 삭제' }));
       fireEvent.click(within(screen.getByRole('group', { name: '이직준비 삭제 확인' })).getByRole('button', { name: '삭제' }));
-      await waitFor(() => expect(screen.queryByRole('button', { name: '이직준비 이름 수정' })).not.toBeInTheDocument());
+      await waitFor(() => expect(screen.queryByRole('button', { name: '이직준비 수정' })).not.toBeInTheDocument());
       expect(activeTags(book).map((tag) => tag.name)).toEqual(['운동']);
       fireEvent.click(screen.getByRole('button', { name: '완료' }));
       expect(within(screen.getByRole('group', { name: '내 태그' })).getAllByRole('button').map((button) => button.textContent)).toEqual(['태그 없음', '운동']);

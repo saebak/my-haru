@@ -402,6 +402,15 @@ body:has(.modal-backdrop, .calendar-view) { overflow: hidden; }
 .tag-popover-confirm > div { display: flex; justify-content: flex-end; gap: 4px; }
 .tag-popover-confirm .is-danger { background: #fde4e8; color: #b33447; }
 
+.tag-popover-new { display: grid; gap: 8px; padding-top: 10px; border-top: 1px solid var(--line); }
+.tag-popover-new .tag-popover-create { padding-top: 0; border-top: 0; }
+.tag-popover-preview { justify-self: start; }
+.tag-popover-edit { display: grid; gap: 6px; padding: 4px 4px 8px; border-radius: 12px; background: var(--tag-bg); }
+.tag-popover-edit .tag-popover-rename { background: transparent; padding: 0; }
+.tag-popover .tag-color-picker { display: grid; grid-template-columns: repeat(5, 1fr); justify-items: center; gap: 0; }
+.tag-popover .tag-color-picker legend { margin-bottom: 2px; font-size: .7rem; }
+.tag-popover .tag-color-picker label { width: 44px; height: 40px; }
+
 /* 설정 > 태그 관리 */
 .tag-manager { display: grid; gap: 18px; }
 .tag-section { display: grid; gap: 8px; }

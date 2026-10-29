@@ -41,14 +41,14 @@ function ColorPicker({ name, value, onChange, disabled }: { name: string; value:
 /**
  * 등록·수정 폼의 태그 필드(TAG-003). 평소에는 선택한 태그만 보이고,
  * 누르면 팝오버에서 내 태그를 고르거나 새 태그·추천 태그를 바로 만들어 선택한다.
- * 팝오버의 편집 모드에서 태그 이름을 바꾸거나 삭제할 수 있다(TAG-001).
+ * 새 태그는 쓰지 않은 색을 자동으로 고르되 바꿀 수 있고, 편집 모드에서 이름·색을 바꾸거나 삭제할 수 있다(TAG-001).
  */
-export function TagField({ book, value, onChange, onCreate, onRename, onDelete, disabled }: {
+export function TagField({ book, value, onChange, onCreate, onUpdate, onDelete, disabled }: {
   book: TagBook;
   value: string;
   onChange: (tagId: string) => void;
   onCreate: (input: TagInput) => Promise<Tag>;
-  onRename: (id: string, name: string) => Promise<unknown>;
+  onUpdate: (id: string, patch: { name: string; color: TagColor }) => Promise<unknown>;
   onDelete: (id: string) => Promise<unknown>;
   disabled: boolean;
 }) {
@@ -61,14 +61,16 @@ export function TagField({ book, value, onChange, onCreate, onRename, onDelete, 
   const selected = tags.find((tag) => tag.id === value) ?? null;
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
+  const [newColor, setNewColor] = useState<TagColor | null>(null);
+  const createColor = newColor ?? nextTagColor(book);
   const [error, setError] = useState('');
   const [managing, setManaging] = useState(false);
-  const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
+  const [renaming, setRenaming] = useState<{ id: string; name: string; color: TagColor } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
   function resetEdit() { setManaging(false); setRenaming(null); setConfirmDelete(null); }
   function close(returnFocus = false) {
-    setOpen(false); setError(''); setName(''); resetEdit();
+    setOpen(false); setError(''); setName(''); setNewColor(null); resetEdit();
     if (returnFocus) queueMicrotask(() => triggerRef.current?.focus());
   }
   useDismiss(open, rootRef, () => close());
@@ -83,10 +85,11 @@ export function TagField({ book, value, onChange, onCreate, onRename, onDelete, 
     try { pick((await onCreate(input)).id); }
     catch (reason) { setError(errorMessage(reason, '태그를 만들지 못했어요. 다시 시도해 주세요.')); }
   }
-  async function rename(id: string, nextName: string) {
+  async function saveEdit() {
+    if (!renaming?.name.trim()) return;
     setError('');
-    try { await onRename(id, nextName); setRenaming(null); }
-    catch (reason) { setError(errorMessage(reason, '태그 이름을 바꾸지 못했어요. 다시 시도해 주세요.')); }
+    try { await onUpdate(renaming.id, { name: renaming.name, color: renaming.color }); setRenaming(null); }
+    catch (reason) { setError(errorMessage(reason, '태그를 수정하지 못했어요. 다시 시도해 주세요.')); }
   }
   async function remove(id: string) {
     setError('');
@@ -120,13 +123,16 @@ export function TagField({ book, value, onChange, onCreate, onRename, onDelete, 
       {managing ? <ul className="tag-popover-manage" aria-label="태그 편집">
         {tags.map((tag) => <li key={tag.id} className={`tag-${tag.color}`}>
           {/* 등록·수정 폼 안에 있으므로 중첩 <form>을 쓰지 않는다. 중첩 폼은 브라우저가 바깥 폼을 제출해 페이지가 새로고침됐다. */}
-          {renaming?.id === tag.id ? <div className="tag-popover-rename" role="group" aria-label={`${tag.name} 이름 수정`}>
-            <label className="sr-only" htmlFor={`${baseId}-rename`}>{tag.name} 새 이름</label>
-            <input id={`${baseId}-rename`} type="text" value={renaming.name} maxLength={TAG_NAME_MAX} autoComplete="off" autoFocus disabled={disabled}
-              onChange={(event) => setRenaming({ id: tag.id, name: event.target.value })}
-              onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); if (renaming.name.trim()) void rename(tag.id, renaming.name); } }} />
-            <button type="button" className="is-primary" disabled={disabled || !renaming.name.trim()} onClick={() => void rename(tag.id, renaming.name)}>저장</button>
-            <button type="button" onClick={() => setRenaming(null)}>취소</button>
+          {renaming?.id === tag.id ? <div className={`tag-popover-edit tag-${renaming.color}`} role="group" aria-label={`${tag.name} 수정`}>
+            <div className="tag-popover-rename">
+              <label className="sr-only" htmlFor={`${baseId}-rename`}>{tag.name} 새 이름</label>
+              <input id={`${baseId}-rename`} type="text" value={renaming.name} maxLength={TAG_NAME_MAX} autoComplete="off" autoFocus disabled={disabled}
+                onChange={(event) => setRenaming({ ...renaming, name: event.target.value })}
+                onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); void saveEdit(); } }} />
+              <button type="button" className="is-primary" disabled={disabled || !renaming.name.trim()} onClick={() => void saveEdit()}>저장</button>
+              <button type="button" onClick={() => setRenaming(null)}>취소</button>
+            </div>
+            <ColorPicker name={`${baseId}-edit-color`} value={renaming.color} onChange={(color) => setRenaming({ ...renaming, color })} disabled={disabled} />
           </div> : confirmDelete === tag.id ? <div className="tag-popover-confirm" role="group" aria-label={`${tag.name} 삭제 확인`}>
             <p><strong>{tag.name}</strong>을(를) 삭제할까요? 할 일은 남고 태그만 사라져요.</p>
             <div>
@@ -135,7 +141,7 @@ export function TagField({ book, value, onChange, onCreate, onRename, onDelete, 
             </div>
           </div> : <div className="tag-popover-manage-row">
             <span className="tag-pill">{tag.name}</span>
-            <button type="button" aria-label={`${tag.name} 이름 수정`} disabled={disabled} onClick={() => { setError(''); setConfirmDelete(null); setRenaming({ id: tag.id, name: tag.name }); }}>수정</button>
+            <button type="button" aria-label={`${tag.name} 수정`} disabled={disabled} onClick={() => { setError(''); setConfirmDelete(null); setRenaming({ id: tag.id, name: tag.name, color: tag.color }); }}>수정</button>
             <button type="button" className="is-danger" aria-label={`${tag.name} 삭제`} disabled={disabled} onClick={() => { setError(''); setRenaming(null); setConfirmDelete(tag.id); }}>삭제</button>
           </div>}
         </li>)}
@@ -144,12 +150,19 @@ export function TagField({ book, value, onChange, onCreate, onRename, onDelete, 
           <button type="button" className="tag-popover-option" aria-pressed={!value} onClick={() => pick('')}>태그 없음</button>
           {tags.map((tag) => <button key={tag.id} type="button" className={`tag-popover-option tag-${tag.color}`} aria-pressed={value === tag.id} onClick={() => pick(tag.id)}><span className="tag-pill">{tag.name}</span></button>)}
         </div>
-        <div className="tag-popover-create">
-          <label className="sr-only" htmlFor={`${baseId}-new`}>새 태그 이름</label>
-          <input id={`${baseId}-new`} type="text" value={name} maxLength={TAG_NAME_MAX} placeholder="새 태그 이름" autoComplete="off" disabled={disabled}
-            onChange={(event) => setName(event.target.value)}
-            onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); if (name.trim()) void create({ name, color: nextTagColor(book) }); } }} />
-          <button type="button" disabled={disabled || !name.trim()} onClick={() => void create({ name, color: nextTagColor(book) })}>추가</button>
+        <div className={`tag-popover-new tag-${createColor}`}>
+          <div className="tag-popover-create">
+            <label className="sr-only" htmlFor={`${baseId}-new`}>새 태그 이름</label>
+            <input id={`${baseId}-new`} type="text" value={name} maxLength={TAG_NAME_MAX} placeholder="새 태그 이름" autoComplete="off" disabled={disabled}
+              onChange={(event) => setName(event.target.value)}
+              onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); if (name.trim()) void create({ name, color: createColor }); } }} />
+            <button type="button" disabled={disabled || !name.trim()} onClick={() => void create({ name, color: createColor })}>추가</button>
+          </div>
+          {/* 이름을 입력하면 자동으로 고른 색이 선택된 채 색상 선택이 나타난다. */}
+          {name.trim() && <>
+            <span className="tag-pill tag-popover-preview" aria-hidden="true">{name.trim()}</span>
+            <ColorPicker name={`${baseId}-new-color`} value={createColor} onChange={setNewColor} disabled={disabled} />
+          </>}
         </div>
         {presets.length > 0 && <div className="tag-popover-presets" role="group" aria-label="추천 태그 바로 추가">
           <p>추천 태그</p>
