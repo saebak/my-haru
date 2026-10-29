@@ -35,6 +35,8 @@ import { CSS } from '@dnd-kit/utilities';
 import { SchedulePicker } from './components/SchedulePicker';
 import { Notebook } from './components/Notebook';
 import { ActionIcon } from './components/ActionIcon';
+import { MonthlyReview } from './components/MonthlyReview';
+import { dayRate, monthStats } from './domain/stats';
 import { TagChip, TagField, TagManager, TagSelect } from './components/Tags';
 import { activeTags, addTags, deleteTag, emptyTagBook, moveTag, updateTag, type Tag, type TagBook, type TagColor, type TagInput } from './domain/tags';
 
@@ -475,16 +477,6 @@ function DraggedTaskCard({ item, tag, snapshot }: { item: DisplayTodo; tag: Tag 
   </article>;
 }
 
-function agendaDetail(item: DisplayTodo, snapshot: Snapshot) {
-  if (itemType(item) === 'habit') {
-    if (item.status === 'completed') return `${streakFor(snapshot, item)}일 연속 · 완료`;
-    return item.status === 'skipped' ? '건너뜀' : '';
-  }
-  return [item.dueTime, PRIORITY_LABEL[item.priority], item.status === 'completed' ? '완료' : null]
-    .filter((value): value is string => Boolean(value))
-    .join(' · ');
-}
-
 function calendarCompletion(items: DisplayTodo[]) {
   const measurable = items.filter((item) => item.status !== 'skipped');
   if (!measurable.length) return { percent: null, level: 0 };
@@ -523,11 +515,12 @@ function CalendarGrowth({ level }: { level: number }) {
   </span>;
 }
 
-function CalendarView({ anchor, selected, today, snapshot, onMove, onSelect, onToday, onOpenDate, onClose }: {
+function CalendarView({ anchor, selected, today, snapshot, tagsById, onMove, onSelect, onToday, onOpenDate, onClose }: {
   anchor: string;
   selected: string;
   today: string;
   snapshot: Snapshot;
+  tagsById: ReadonlyMap<string, Tag>;
   onMove: (amount: number) => void;
   onSelect: (date: string) => void;
   onToday: () => void;
@@ -539,8 +532,9 @@ function CalendarView({ anchor, selected, today, snapshot, onMove, onSelect, onT
   closeHandler.current = onClose;
   const days = monthGrid(anchor);
   const anchorMonth = anchor.slice(0, 7);
-  const selectedItems = materializeItems(snapshot.todos, snapshot.records, selected);
+  const selectedRate = dayRate(snapshot.todos, snapshot.records, selected);
   const { month, day } = dateParts(selected);
+  const stats = useMemo(() => monthStats(snapshot.todos, snapshot.records, anchor, today, new Set(tagsById.keys())), [anchor, snapshot, tagsById, today]);
 
   useEffect(() => {
     closeRef.current?.focus();
@@ -559,7 +553,11 @@ function CalendarView({ anchor, selected, today, snapshot, onMove, onSelect, onT
       const { percent, level } = calendarCompletion(dateItems);
       return <button key={date} className={`calendar-day ${date.slice(0, 7) !== anchorMonth ? 'is-outside' : ''} ${date === selected ? 'is-selected' : ''} ${date === today ? 'is-today' : ''} ${dateItems.length ? 'has-items' : ''} completion-level-${level}`} type="button" data-date={date} data-completion={percent ?? undefined} aria-pressed={date === selected} aria-current={date === today ? 'date' : undefined} aria-label={`${formatHeading(date)}${dateItems.length ? `, ${dateItems.length}개 항목` : ''}${percent !== null ? `, 완료 ${percent}%` : ''}`} onClick={() => onSelect(date)}><span className="calendar-date-number">{Number(date.slice(-2))}</span><CalendarGrowth level={level} /></button>;
     })}</div>
-    <section className="calendar-agenda" aria-labelledby="agenda-title"><div className="section-heading-row"><div><p className="section-kicker">SELECTED DAY</p><h2 id="agenda-title">{month}월 {day}일 일정</h2></div><span className="section-meta">{selectedItems.length}개</span></div><div>{selectedItems.length ? selectedItems.map((item) => <div className={`agenda-item ${item.status === 'completed' ? 'is-done' : ''}`} key={item.key}><span>{item.emoji || '💡'}</span><div><strong>{item.title}</strong><small>{agendaDetail(item, snapshot)}</small></div></div>) : <div className="calendar-empty"><strong>일정이 없어요</strong><span>이 날짜를 선택해 새 항목을 추가할 수 있어요.</span></div>}</div><button className="agenda-open-button" type="button" onClick={onOpenDate}>이 날짜 일정 보기</button></section>
+    <section className="calendar-day-summary" aria-labelledby="agenda-title">
+      <div><h2 id="agenda-title">{month}월 {day}일</h2><p>{selectedRate.total ? `${selectedRate.total}개 중 ${selectedRate.completed}개 완료${selectedRate.completed === selectedRate.total ? ' · 모두 해냈어요' : ''}` : '일정이 없어요'}</p></div>
+      <button className="agenda-open-button" type="button" onClick={onOpenDate}>이 날짜 일정 보기</button>
+    </section>
+    <MonthlyReview stats={stats} monthName={`${Number(anchor.slice(5, 7))}월`} isCurrentMonth={anchor.slice(0, 7) === today.slice(0, 7)} tagsById={tagsById} />
   </section>;
 }
 
@@ -998,7 +996,7 @@ export default function App() {
     {notebookOpen && <Notebook onClose={() => { setNotebookOpen(false); queueMicrotask(() => openerRef.current?.focus()); }} />}
     {overlay === 'detail' && viewing && <Modal kicker={viewing.category === 'habit' ? 'ROUTINE' : 'TODO'} title="상세보기" onClose={closeOverlay} headerAction={<button className="icon-button" type="button" aria-label="복사" title="복사" onClick={() => { setCopyDate(viewing.targetDate); setError(''); setOverlay('copy'); }}><ActionIcon name="copy" /></button>}><div className="todo-detail"><h3>{viewing.emoji} {viewing.title}</h3><p>{formatHeading(viewing.targetDate)}{viewing.dueTime ? ` · ${viewing.dueTime}` : ''}</p>{tagOf(viewing) && <div className="detail-tag"><TagChip tag={tagOf(viewing)!} /></div>}<h4>메모</h4><p className="detail-memo">{viewing.memo || '작성된 메모가 없어요.'}</p></div></Modal>}
 {overlay === 'copy' && viewing && <Modal kicker="COPY" title="다른 날짜로 복사" compact onClose={closeOverlay}><form className="copy-form" onSubmit={event => { event.preventDefault(); const targetDate = String(new FormData(event.currentTarget).get('copyDate')); void run(async () => { await createTodo({ type: 'one_time', category: viewing.category, title: viewing.title, memo: viewing.memo, emoji: viewing.emoji, priority: viewing.priority, dueTime: viewing.dueTime, dueDate: targetDate, tagIds: viewing.tagIds }); goToDate(targetDate); showNotice('선택한 날짜에 복사했어요.'); }, true).catch(() => undefined); }}><p>내용과 시간을 그대로 복사해 미완료 항목으로 한 번 등록해요. 반복 설정과 완료 기록은 복사하지 않아요.</p><SchedulePicker name="copyDate" label="복사할 날짜" value={copyDate} onChange={setCopyDate} disabled={busy} />{error && <p role="alert">{error}</p>}<button disabled={busy || !copyDate} type="submit">{busy ? '복사 중…' : '이 날짜에 복사'}</button></form></Modal>}
-    {calendarOpen && <CalendarView anchor={calendarAnchor} selected={calendarSelected} today={today} snapshot={snapshot} onMove={(amount) => setCalendarAnchor(changeMonth(calendarAnchor, amount))} onSelect={(date) => { setCalendarSelected(date); setCalendarAnchor(`${date.slice(0, 7)}-01`); }} onToday={() => { setCalendarSelected(today); setCalendarAnchor(`${today.slice(0, 7)}-01`); }} onOpenDate={() => { goToDate(calendarSelected); closeCalendar(); }} onClose={closeCalendar} />}
+    {calendarOpen && <CalendarView anchor={calendarAnchor} selected={calendarSelected} today={today} snapshot={snapshot} tagsById={tagsById} onMove={(amount) => setCalendarAnchor(changeMonth(calendarAnchor, amount))} onSelect={(date) => { setCalendarSelected(date); setCalendarAnchor(`${date.slice(0, 7)}-01`); }} onToday={() => { setCalendarSelected(today); setCalendarAnchor(`${today.slice(0, 7)}-01`); }} onOpenDate={() => { goToDate(calendarSelected); closeCalendar(); }} onClose={closeCalendar} />}
     {overlay === 'form' && <TodoForm selectedDate={selectedDate} editing={editing} source={source} saving={busy} tagBook={tagBook} defaultTagId={activeFilter ?? ''} onCreateTag={createTag} onNotice={showNotice} onUpdateTag={(id, patch) => editTags((book) => updateTag(book, id, patch, tagDeps))} onDeleteTag={(id) => editTags((book) => deleteTag(book, id, tagDeps))} onCancel={closeOverlay} onSubmit={submit} />}
     {overlay === 'delete' && deleteTarget && <Modal kicker="REPEAT ITEM" title="어디에서 삭제할까요?" compact onClose={closeOverlay}><div className="scope-action-list"><button type="button" disabled={busy} onClick={() => void commitDelete(deleteTarget, 'date').catch(() => undefined)}><strong>오늘만</strong><small>선택한 날짜에서만 숨겨요</small></button><button type="button" disabled={busy} onClick={() => void commitDelete(deleteTarget, 'future').catch(() => undefined)}><strong>오늘 이후</strong><small>이전 기록은 그대로 남겨요</small></button><button type="button" disabled={busy} onClick={() => void commitDelete(deleteTarget, 'all').catch(() => undefined)}><strong>전체 반복</strong><small>모든 날짜에서 삭제해요</small></button></div></Modal>}
     {overlay === 'settings' && <SettingsPanel cloudStatus={cloudStatus} tagCount={tags.length} onTags={() => setOverlay('tags')} onClose={closeOverlay} onGuide={() => { setOverlay(null); setOnboardingOpen(true); }} onData={() => { setError(''); setOverlay('data'); }} onNotifications={() => { closeOverlay(); showNotice('알림 설정은 다음 단계에서 제공할 예정이에요.'); }} />}

@@ -654,6 +654,17 @@ describe('App', () => {
     expect(screen.getByLabelText('달성률 꾸밈 기준')).toHaveTextContent('새싹 25%');
     expect(screen.getByLabelText('달성률 꾸밈 기준')).toHaveTextContent('숲 100%');
     expect(screen.getByRole('button', { name: '이 날짜 일정 보기' })).toBeInTheDocument();
+    // 하단은 일정 목록 대신 선택한 날짜 한 줄 요약과 월간 돌아보기를 보여 준다.
+    expect(screen.queryByText('completed 일정', { selector: '.calendar-view strong' })).not.toBeInTheDocument();
+    expect(screen.getByRole('region', { name: /월 \d+일$/ })).toHaveTextContent('2개 중 1개 완료');
+    const review = screen.getByRole('region', { name: '이번 달 돌아보기' });
+    expect(within(review).getByText('50')).toBeInTheDocument();
+    expect(review).toHaveTextContent('모두 완료한 날 0일');
+    expect(within(review).getByRole('heading', { name: '태그별 달성률' })).toBeInTheDocument();
+    expect(review).toHaveTextContent('태그 없음');
+    fireEvent.click(screen.getByRole('button', { name: '다음 달' }));
+    expect(screen.getByRole('region', { name: /돌아보기$/ })).toHaveTextContent('아직 시작하지 않은 달이에요');
+    fireEvent.click(screen.getByRole('button', { name: '이전 달' }));
     const close = screen.getByRole('button', { name: '일정으로 돌아가기' });
     await waitFor(() => expect(close).toHaveFocus());
     fireEvent.keyDown(document, { key: 'Escape' });
