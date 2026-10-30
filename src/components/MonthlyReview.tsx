@@ -35,8 +35,8 @@ export function MonthlyReview({ stats, monthName, isCurrentMonth, tagsById }: {
 
     <div className="review-summary">
       <div className="review-rate">
-        <strong>{stats.percent}<small>%</small></strong>
-        <span>{stats.total}개 중 {stats.completed}개 완료</span>
+        <div className="review-rate-main"><span className="review-label">완료율</span><strong>{stats.percent}<small>%</small></strong></div>
+        <span className="review-total" aria-label={`전체 ${stats.total}개 중 ${stats.completed}개 완료`}>{stats.completed} / {stats.total}개</span>
       </div>
       <Bar percent={stats.percent} />
       {delta && <ul className="review-facts">

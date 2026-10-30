@@ -449,10 +449,12 @@ body:has(.modal-backdrop, .calendar-view) { overflow: hidden; }
 .monthly-review { margin-top: 26px; padding-top: 22px; border-top: 1px solid var(--line); }
 .monthly-review h2 { margin: 5px 0 0; font-size: 1.12rem; letter-spacing: -.03em; }
 .review-summary { display: grid; gap: 10px; padding: 16px; border: 1px solid #dce9d0; border-radius: 18px; background: linear-gradient(145deg, #fbfef8, #f2f8eb); }
-.review-rate { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.review-rate { display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; }
+.review-rate-main { display: grid; gap: 4px; }
+.review-label { color: #4f574c; font-size: .72rem; font-weight: 800; }
 .review-rate strong { color: var(--primary-dark); font-size: 2rem; font-weight: 900; letter-spacing: -.04em; line-height: 1; }
 .review-rate strong small { margin-left: 2px; font-size: 1rem; }
-.review-rate span { color: var(--muted); font-size: .78rem; font-weight: 700; }
+.review-total { color: var(--muted); font-size: .78rem; font-weight: 700; }
 .review-bar { display: block; height: 8px; overflow: hidden; border-radius: 99px; background: rgba(120, 140, 110, .14); }
 .review-bar i { display: block; height: 100%; border-radius: inherit; background: var(--tag-fg, var(--primary)); transition: width .3s ease; }
 .review-facts { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
