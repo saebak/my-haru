@@ -441,38 +441,48 @@ body:has(.modal-backdrop, .calendar-view) { overflow: hidden; }
 .tag-color-picker input:checked + .tag-swatch { outline: 2px solid var(--ink); outline-offset: 2px; }
 .tag-color-picker input:focus-visible + .tag-swatch { outline: 2px solid var(--primary-dark); outline-offset: 3px; }
 
-/* 캘린더: 선택한 날짜 한 줄 요약과 월간 돌아보기(STAT-001~STAT-004) */
-.calendar-day-summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 16px; padding: 12px 12px 12px 16px; border: 1px solid #e1e9d9; border-radius: 17px; background: #fbfdf9; }
-.calendar-day-summary h2 { margin: 0; font-size: .95rem; }
-.calendar-day-summary p { margin: 3px 0 0; color: var(--muted); font-size: .76rem; }
-.calendar-day-summary .agenda-open-button { width: auto; flex: 0 0 auto; min-height: 44px; margin: 0; padding: 0 14px; }
-.monthly-review { margin-top: 26px; padding-top: 22px; border-top: 1px solid var(--line); }
-.monthly-review h2 { margin: 5px 0 0; font-size: 1.12rem; letter-spacing: -.03em; }
-.review-summary { display: grid; gap: 10px; padding: 16px; border: 1px solid #dce9d0; border-radius: 18px; background: linear-gradient(145deg, #fbfef8, #f2f8eb); }
-.review-rate { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
-.review-rate strong { color: var(--primary-dark); font-size: 2rem; font-weight: 900; letter-spacing: -.04em; line-height: 1; }
-.review-rate strong small { margin-left: 2px; font-size: 1rem; }
-.review-rate span { color: var(--muted); font-size: .78rem; font-weight: 700; }
-.review-bar { display: block; height: 8px; overflow: hidden; border-radius: 99px; background: rgba(120, 140, 110, .14); }
+/* 캘린더: 선택한 날짜 한 줄 요약과 월간 돌아보기(STAT-001~STAT-004). 달력과 한 화면에 최대한 들어오도록 간격을 줄였다. */
+.calendar-view .month-heading { margin: 14px 0 10px; }
+.calendar-view .calendar-completion-legend { margin: -2px 0 8px; }
+.calendar-view .calendar-weekdays { margin-bottom: 4px; }
+.calendar-view .calendar-grid { gap: 2px; }
+.calendar-view .calendar-day { min-height: 46px; padding: 5px 2px 2px; }
+.calendar-view .calendar-growth { height: 23px; }
+.calendar-day-summary { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; padding: 8px 8px 8px 14px; border: 1px solid #e1e9d9; border-radius: 16px; background: #fbfdf9; }
+.calendar-day-summary h2 { margin: 0; font-size: .9rem; }
+.calendar-day-summary p { margin: 2px 0 0; color: var(--muted); font-size: .72rem; }
+.calendar-day-summary .agenda-open-button { width: auto; flex: 0 0 auto; min-height: 44px; margin: 0; padding: 0 12px; font-size: .76rem; }
+.monthly-review { margin-top: 16px; }
+.review-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 8px; }
+.review-head h2 { margin: 0; font-size: 1rem; letter-spacing: -.03em; }
+.review-summary { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 14px; padding: 12px 14px; border: 1px solid #dce9d0; border-radius: 16px; background: linear-gradient(145deg, #fbfef8, #f2f8eb); }
+.review-rate strong { color: var(--primary-dark); font-size: 1.9rem; font-weight: 900; letter-spacing: -.04em; line-height: 1; }
+.review-rate strong small { margin-left: 1px; font-size: .9rem; }
+.review-summary-side { display: grid; gap: 6px; min-width: 0; }
+.review-total { color: #4f574c; font-size: .74rem; font-weight: 800; }
+.review-bar { display: block; height: 6px; overflow: hidden; border-radius: 99px; background: rgba(120, 140, 110, .14); }
 .review-bar i { display: block; height: 100%; border-radius: inherit; background: var(--tag-fg, var(--primary)); transition: width .3s ease; }
-.review-facts { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
-.review-facts li { display: inline-flex; align-items: center; gap: 5px; min-height: 28px; padding: 0 10px; border-radius: 99px; background: #fff; color: #4f574c; font-size: .72rem; font-weight: 800; }
+.review-facts { display: flex; flex-wrap: wrap; gap: 4px 10px; margin: 0; padding: 0; list-style: none; color: #4f574c; font-size: .68rem; font-weight: 800; }
+.review-facts li { display: inline-flex; align-items: center; gap: 4px; }
 .review-facts li.is-up { color: #3f6b1c; }
 .review-facts li.is-down { color: #9a3556; }
-.review-facts b { font-size: .7rem; }
-.review-block { margin-top: 20px; }
-.review-block h3 { margin: 0 0 10px; font-size: .88rem; }
-.review-tags, .review-routines { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
-.review-tags li { display: grid; grid-template-columns: minmax(0, 96px) minmax(0, 1fr) auto; align-items: center; gap: 10px; min-height: 36px; }
-.review-tags .tag-pill { justify-self: start; font-size: .74rem; }
-.review-untagged { color: var(--muted); font-size: .74rem; font-weight: 800; }
+.review-facts b { font-size: .66rem; }
+.review-block { margin-top: 14px; }
+.review-block h3 { margin: 0 0 8px; font-size: .8rem; color: #4f574c; }
+.review-tags { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 14px; margin: 0; padding: 0; list-style: none; }
+.review-tags li { display: grid; gap: 5px; min-width: 0; }
+.review-tag-line { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-width: 0; }
+.review-tags .tag-pill { min-width: 0; padding: 3px 9px; font-size: .72rem; }
+.review-untagged { color: var(--muted); font-size: .72rem; font-weight: 800; }
 .review-tags li.is-untagged .review-bar i { background: #b7bfb2; }
-.review-count { color: var(--muted); font-size: .72rem; font-weight: 700; white-space: nowrap; text-align: right; }
-.review-count b { color: var(--ink); font-size: .8rem; font-weight: 850; }
-.review-routines li { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; align-items: center; gap: 10px; min-height: 52px; padding: 8px 12px 8px 8px; border: 1px solid var(--line); border-radius: 15px; background: #fff; }
-.review-routine-icon { display: grid; width: 36px; height: 36px; place-items: center; border-radius: 12px; background: var(--primary-soft); font-size: 1.05rem; }
+.review-count { flex: 0 0 auto; color: var(--muted); font-size: .68rem; font-weight: 700; white-space: nowrap; text-align: right; }
+.review-count b { color: var(--ink); font-size: .74rem; font-weight: 850; }
+.review-routines { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.review-routines li { display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; align-items: center; gap: 10px; min-height: 46px; padding: 6px 12px 6px 7px; border: 1px solid var(--line); border-radius: 14px; background: #fff; }
+.review-routine-icon { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 10px; background: var(--primary-soft); font-size: .95rem; }
 .review-routine-name { min-width: 0; }
-.review-routine-name strong { display: block; overflow: hidden; font-size: .84rem; white-space: nowrap; text-overflow: ellipsis; }
-.review-routine-name small { display: block; margin-top: 2px; color: var(--muted); font-size: .7rem; }
-.monthly-review .calendar-empty { margin-top: 2px; }
+.review-routine-name strong { display: block; overflow: hidden; font-size: .8rem; white-space: nowrap; text-overflow: ellipsis; }
+.review-routine-name small { display: block; margin-top: 1px; color: var(--muted); font-size: .66rem; }
+.review-more { width: 100%; min-height: 44px; margin-top: 6px; border: 0; border-radius: 12px; background: transparent; color: var(--primary-dark); font: inherit; font-size: .76rem; font-weight: 800; }
+.monthly-review .calendar-empty { padding: 16px 14px; }
 @media (prefers-reduced-motion: reduce) { .review-bar i { transition: none; } }
