@@ -14,7 +14,7 @@ function Bar({ percent }: { percent: number | null }) {
 
 /**
  * 캘린더 하단의 월간 돌아보기(STAT-001~STAT-004). 보고 있는 달의 오늘까지 기록으로
- * 달성률·전월 대비·모두 완료한 날, 태그별 달성률, 루틴별 완료 횟수와 최장 연속을 보여 준다.
+ * 달성률·전월 대비, 태그별 달성률, 루틴별 완료 횟수와 최장 연속을 보여 준다.
  */
 export function MonthlyReview({ stats, monthName, isCurrentMonth, tagsById }: {
   stats: MonthStats;
@@ -31,7 +31,7 @@ export function MonthlyReview({ stats, monthName, isCurrentMonth, tagsById }: {
   }
   const delta = deltaText(stats.delta);
   return <section className="monthly-review" aria-labelledby="monthly-review-title">
-    <div className="section-heading-row"><div><p className="section-kicker">MONTHLY REVIEW</p><h2 id="monthly-review-title">{title}</h2></div><span className="section-meta">{stats.countedDays}일 기준</span></div>
+    <div className="section-heading-row"><div><p className="section-kicker">MONTHLY REVIEW</p><h2 id="monthly-review-title">{title}</h2></div></div>
 
     <div className="review-summary">
       <div className="review-rate">
@@ -39,10 +39,9 @@ export function MonthlyReview({ stats, monthName, isCurrentMonth, tagsById }: {
         <span>{stats.total}개 중 {stats.completed}개 완료</span>
       </div>
       <Bar percent={stats.percent} />
-      <ul className="review-facts">
-        {delta && <li className={stats.delta! > 0 ? 'is-up' : stats.delta! < 0 ? 'is-down' : ''}><b aria-hidden="true">{stats.delta! > 0 ? '▲' : stats.delta! < 0 ? '▼' : '='}</b>{delta}</li>}
-        <li><b aria-hidden="true">🌲</b>모두 완료한 날 {stats.perfectDays}일</li>
-      </ul>
+      {delta && <ul className="review-facts">
+        <li className={stats.delta! > 0 ? 'is-up' : stats.delta! < 0 ? 'is-down' : ''}><b aria-hidden="true">{stats.delta! > 0 ? '▲' : stats.delta! < 0 ? '▼' : '='}</b>{delta}</li>
+      </ul>}
     </div>
 
     {stats.byTag.length > 0 && <div className="review-block">

@@ -659,7 +659,8 @@ describe('App', () => {
     expect(screen.getByRole('region', { name: /월 \d+일$/ })).toHaveTextContent('2개 중 1개 완료');
     const review = screen.getByRole('region', { name: '이번 달 돌아보기' });
     expect(within(review).getByText('50')).toBeInTheDocument();
-    expect(review).toHaveTextContent('모두 완료한 날 0일');
+    expect(review).not.toHaveTextContent('모두 완료한 날');
+    expect(review).not.toHaveTextContent('일 기준');
     expect(within(review).getByRole('heading', { name: '태그별 달성률' })).toBeInTheDocument();
     expect(review).toHaveTextContent('기타');
     fireEvent.click(screen.getByRole('button', { name: '다음 달' }));

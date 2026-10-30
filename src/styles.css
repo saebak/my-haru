@@ -463,9 +463,10 @@ body:has(.modal-backdrop, .calendar-view) { overflow: hidden; }
 .review-block { margin-top: 20px; }
 .review-block h3 { margin: 0 0 10px; font-size: .88rem; }
 .review-tags, .review-routines { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
-.review-tags li { display: grid; grid-template-columns: minmax(0, 96px) minmax(0, 1fr) auto; align-items: center; gap: 10px; min-height: 36px; }
-.review-tags .tag-pill { justify-self: start; font-size: .74rem; }
-.review-untagged { color: var(--muted); font-size: .74rem; font-weight: 800; }
+/* 행마다 독립된 grid라 열 너비를 고정해야 이름·막대·숫자가 모든 행에서 같은 위치에 정렬된다. */
+.review-tags li { display: grid; grid-template-columns: 92px minmax(0, 1fr) 78px; align-items: center; gap: 10px; min-height: 36px; }
+.review-tags .tag-pill, .review-untagged { justify-self: start; max-width: 100%; font-size: .74rem; }
+.review-untagged { display: inline-block; padding: 4px 11px; border-radius: 99px; background: #eef1ec; color: #5f685c; font-weight: 800; line-height: 1.3; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .review-tags li.is-untagged .review-bar i { background: #b7bfb2; }
 .review-count { color: var(--muted); font-size: .72rem; font-weight: 700; white-space: nowrap; text-align: right; }
 .review-count b { color: var(--ink); font-size: .8rem; font-weight: 850; }
