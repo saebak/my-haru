@@ -262,8 +262,10 @@ button:focus-visible, .react-datepicker__day:focus-visible, .react-datepicker__t
 .copy-form > p { color: var(--muted); font-size: .82rem; line-height: 1.6; }
 .copy-form > button { min-height: 53px; border: 0; border-radius: 16px; background: var(--primary); color: #fff; font-weight: 800; box-shadow: 0 9px 20px rgba(91,128,42,.2); }
 .notebook-view { overflow-y: auto; padding-bottom: calc(32px + env(safe-area-inset-bottom)); }
-.notebook-header { position: sticky; z-index: 2; top: calc(-22px - env(safe-area-inset-top)); margin: calc(-22px - env(safe-area-inset-top)) -20px 0; padding: calc(22px + env(safe-area-inset-top)) 20px 14px; background: rgba(248,251,245,.94); backdrop-filter: blur(12px); }
-.notebook-back { color: #5f685c; font-size: 1.7rem; }
+/* 캘린더·메모장 제목은 토스 내비게이션 바와 겹치는 자체 헤더가 아니라 본문 제목으로 보여 준다(UX-003). */
+.view-heading { display: flex; min-height: 44px; align-items: center; justify-content: space-between; gap: 10px; }
+.view-heading h1 { margin: 0; font-size: 1.28rem; letter-spacing: -.035em; text-align: left; outline: none; }
+.view-heading .today-button { min-width: 44px; min-height: 36px; padding: 0 10px; }
 .notebook-add, .notebook-edit { background: var(--primary-soft); color: var(--primary-dark); }
 .icon-button.note-save { background: var(--primary); color: #fff; }
 .icon-button:disabled { opacity: .4; cursor: default; }

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import App from './App';
@@ -23,6 +23,15 @@ vi.mock('./infrastructure/indexed-db/todoRepository', () => ({
   loadTagBook: vi.fn().mockResolvedValue({ schemaVersion: 1, tags: [] }),
   updateTagBook: vi.fn(),
 }));
+
+// 토스 내비게이션 바 뒤로가기(graniteEvent backEvent)를 테스트에서 누를 수 있게 한다.
+const { backListeners } = vi.hoisted(() => ({ backListeners: new Set<() => void>() }));
+vi.mock('@apps-in-toss/web-framework', () => ({
+  graniteEvent: {
+    addEventListener: (_event: string, { onEvent }: { onEvent: () => void }) => { backListeners.add(onEvent); return () => backListeners.delete(onEvent); },
+  },
+}));
+function pressTossBack() { act(() => { [...backListeners].forEach((listener) => listener()); }); }
 
 vi.mock('./infrastructure/sync/cloudSync', () => ({
   initializeCloudSync: vi.fn().mockResolvedValue('local_only'),
@@ -233,6 +242,20 @@ describe('App', () => {
     });
   });
 
+  it('closes an open sheet with the Toss back button and only listens while a sheet is open', async () => {
+    render(<App />);
+    await screen.findByText('이날의 항목이 없어요');
+    expect(backListeners.size).toBe(0);
+    const opener = screen.getByRole('button', { name: '설정 열기' });
+    fireEvent.click(opener);
+    expect(screen.getByRole('dialog', { name: '설정' })).toBeInTheDocument();
+    await waitFor(() => expect(backListeners.size).toBe(1));
+    pressTossBack();
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '설정' })).not.toBeInTheDocument());
+    await waitFor(() => expect(backListeners.size).toBe(0));
+    await waitFor(() => expect(opener).toHaveFocus());
+  });
+
   it('opens independent notes and asks before discarding unsaved text', async () => {
     render(<App />);
     await screen.findByText('이날의 항목이 없어요');
@@ -240,10 +263,19 @@ describe('App', () => {
     await screen.findByText('아직 메모가 없어요');
     fireEvent.click(screen.getByRole('button', { name: '새 메모 작성' }));
     fireEvent.change(screen.getByRole('textbox', { name: '새 메모' }), { target: { value: '작성 중인 메모' } });
-    fireEvent.click(screen.getByRole('button', { name: '메모 목록으로 돌아가기' }));
+    // 화면 안 뒤로가기 버튼은 없고, 토스 뒤로가기가 메모장 단계를 처리한다.
+    expect(screen.queryByRole('button', { name: /돌아가기/ })).not.toBeInTheDocument();
+    await waitFor(() => expect(backListeners.size).toBeGreaterThan(0));
+    pressTossBack();
     expect(screen.getByText('저장하지 않은 내용을 버릴까요?')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '계속 작성' }));
     expect(screen.getByRole('textbox', { name: '새 메모' })).toHaveValue('작성 중인 메모');
+    pressTossBack();
+    fireEvent.click(screen.getByRole('button', { name: '버리기' }));
+    expect(await screen.findByText('아직 메모가 없어요')).toBeInTheDocument();
+    pressTossBack();
+    await waitFor(() => expect(screen.queryByRole('heading', { name: '메모장' })).not.toBeInTheDocument());
+    await waitFor(() => expect(backListeners.size).toBe(0));
   });
 
   it('separates the memo list, detail, and edit screens', async () => {
@@ -668,8 +700,16 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: '다음 달' }));
     expect(screen.getByRole('region', { name: /돌아보기$/ })).toHaveTextContent('아직 시작하지 않은 달이에요');
     fireEvent.click(screen.getByRole('button', { name: '이전 달' }));
-    const close = screen.getByRole('button', { name: '일정으로 돌아가기' });
-    await waitFor(() => expect(close).toHaveFocus());
+    // 캘린더에는 자체 뒤로가기 버튼이 없고, 열려 있는 동안만 토스 뒤로가기를 가로채 닫는다.
+    expect(screen.queryByRole('button', { name: /돌아가기/ })).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('heading', { name: '캘린더' })).toHaveFocus());
+    await waitFor(() => expect(backListeners.size).toBe(1));
+    pressTossBack();
+    await waitFor(() => expect(screen.queryByRole('heading', { name: '캘린더' })).not.toBeInTheDocument());
+    await waitFor(() => expect(opener).toHaveFocus());
+    // 첫 화면에서는 구독하지 않아 토스 뒤로가기가 미니앱 종료로 이어진다.
+    expect(backListeners.size).toBe(0);
+    fireEvent.click(opener);
     fireEvent.keyDown(document, { key: 'Escape' });
     await waitFor(() => expect(opener).toHaveFocus());
   });

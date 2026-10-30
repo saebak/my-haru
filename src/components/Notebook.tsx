@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Note } from '../domain/notes';
 import { loadNotebook, saveNote } from '../infrastructure/indexed-db/todoRepository';
+import { useTossBack } from '../infrastructure/navigation/tossBack';
 import { ActionIcon } from './ActionIcon';
 
 type View = 'list' | 'create' | 'detail' | 'edit';
@@ -30,6 +31,7 @@ export function Notebook({ onClose }: { onClose: () => void }) {
   const [confirm, setConfirm] = useState<Confirmation>(null);
   const lock = useRef(false);
   const input = useRef<HTMLTextAreaElement>(null);
+  const headingRef = useRef<HTMLHeadingElement>(null);
   const heading = view === 'list' ? '메모장' : view === 'create' ? '새 메모' : view === 'edit' ? '메모 수정' : '메모 상세';
   const dirty = (view === 'create' || view === 'edit') && text !== (selected?.text ?? '');
   const sortedNotes = useMemo(() => [...notes].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)), [notes]);
@@ -45,7 +47,8 @@ export function Notebook({ onClose }: { onClose: () => void }) {
     shell?.setAttribute('inert', '');
     return () => shell?.removeAttribute('inert');
   }, []);
-  useEffect(() => { if (view === 'create' || view === 'edit') input.current?.focus(); }, [view]);
+  useEffect(() => { if (view === 'create' || view === 'edit') input.current?.focus(); else headingRef.current?.focus(); }, [view]);
+  useTossBack(() => { if (confirm) setConfirm(null); else back(); });
 
   function showList() { setView('list'); setSelected(null); setText(''); setConfirm(null); }
   function back() {
@@ -85,9 +88,9 @@ export function Notebook({ onClose }: { onClose: () => void }) {
   }
 
   return <section className="notebook-view calendar-view" aria-labelledby="notebook-heading" onKeyDown={event => { if (event.key === 'Escape') { event.stopPropagation(); close(); } }}>
-    <header className="calendar-header notebook-header">
-      <button autoFocus={view === 'list'} className="icon-button notebook-back" aria-label={view === 'list' ? '일정으로 돌아가기' : '메모 목록으로 돌아가기'} onClick={back}>‹</button>
-      <h1 id="notebook-heading">{heading}</h1>
+    {/* 뒤로가기는 토스 내비게이션 바가 담당하므로 화면 안에 뒤로가기 버튼을 두지 않는다(UX-003). */}
+    <header className="view-heading notebook-header">
+      <h1 id="notebook-heading" tabIndex={-1} ref={headingRef}>{heading}</h1>
       {view === 'list' && <button className="icon-button notebook-add" type="button" aria-label="새 메모 작성" title="새 메모 작성" onClick={openCreate}><ActionIcon name="add" /></button>}
       {view === 'detail' && <button className="icon-button notebook-edit" type="button" aria-label="메모 수정" title="메모 수정" onClick={() => setView('edit')}><ActionIcon name="edit" /></button>}
       {(view === 'create' || view === 'edit') && <button className="icon-button note-save" type="button" aria-label={busy ? '저장 중…' : '메모 저장'} title="메모 저장" disabled={!ready || busy || !text.trim()} onClick={() => void persist()}><ActionIcon name="save" /></button>}

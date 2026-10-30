@@ -56,6 +56,7 @@ import type {
 import { createBackup, parseAndValidateBackup, restoreBackup } from './features/backup/backup';
 import { saveBackupText } from './features/backup/exportBackup';
 import { initializeCloudSync, syncIfConnected, type CloudSyncStatus } from './infrastructure/sync/cloudSync';
+import { useTossBack } from './infrastructure/navigation/tossBack';
 import {
   clearAllData,
   completeOnboarding,
@@ -527,7 +528,7 @@ function CalendarView({ anchor, selected, today, snapshot, tagsById, onMove, onS
   onOpenDate: () => void;
   onClose: () => void;
 }) {
-  const closeRef = useRef<HTMLButtonElement>(null);
+  const headingRef = useRef<HTMLHeadingElement>(null);
   const closeHandler = useRef(onClose);
   closeHandler.current = onClose;
   const days = monthGrid(anchor);
@@ -537,14 +538,14 @@ function CalendarView({ anchor, selected, today, snapshot, tagsById, onMove, onS
   const stats = useMemo(() => monthStats(snapshot.todos, snapshot.records, anchor, today, new Set(tagsById.keys())), [anchor, snapshot, tagsById, today]);
 
   useEffect(() => {
-    closeRef.current?.focus();
+    headingRef.current?.focus();
     const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') closeHandler.current(); };
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
   }, []);
 
   return <section className="calendar-view" aria-labelledby="calendar-title">
-    <header className="calendar-header"><button ref={closeRef} className="icon-button back-button" type="button" aria-label="일정으로 돌아가기" onClick={onClose}>‹</button><h1 id="calendar-title">캘린더</h1><button className="today-button" type="button" onClick={onToday}>오늘</button></header>
+    {/* 뒤로가기는 토스 내비게이션 바가 담당하므로 화면 안에 뒤로가기 버튼을 두지 않는다(UX-003). */}<header className="view-heading calendar-header"><h1 id="calendar-title" ref={headingRef} tabIndex={-1}>캘린더</h1><button className="today-button" type="button" onClick={onToday}>오늘</button></header>
     <div className="month-heading"><button type="button" aria-label="이전 달" onClick={() => onMove(-1)}>‹</button><h2>{monthLabel(anchor)}</h2><button type="button" aria-label="다음 달" onClick={() => onMove(1)}>›</button></div>
     <div className="calendar-completion-legend" aria-label="달성률 꾸밈 기준"><span><i>🌱</i>새싹 25%</span><span><i>🌿</i>잎새 50%</span><span><i>🌳</i>나무 75%</span><span><i>🌲</i>숲 100%</span></div>
     <div className="calendar-weekdays" aria-hidden="true">{WEEKDAY_LABELS.map((label) => <span key={label}>{label}</span>)}</div>
@@ -790,6 +791,9 @@ export default function App() {
   const listRef = useRef<HTMLDivElement>(null);
   const skipReorderAnimation = useRef(false);
   useReorderAnimation(listRef, visibleItems.map((item) => item.key).join('|'), selectedDate, skipReorderAnimation);
+  // 시트·캘린더가 열려 있을 때만 토스 뒤로가기를 가로채 닫는다. 메모장은 자체 단계(상세→목록→닫기)를 처리하고,
+  // 아무것도 열려 있지 않으면 구독하지 않아 첫 화면 뒤로가기가 미니앱 종료가 된다(UX-004).
+  useTossBack(!notebookOpen && (overlay || calendarOpen) ? () => { if (overlay) closeOverlay(); else closeCalendar(); } : null);
   const dragSensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
