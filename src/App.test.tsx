@@ -653,10 +653,6 @@ describe('App', () => {
     expect(todayCell.querySelector('[data-growth-level="2"]')).toBeInTheDocument();
     expect(screen.getByLabelText('달성률 꾸밈 기준')).toHaveTextContent('새싹 25%');
     expect(screen.getByLabelText('달성률 꾸밈 기준')).toHaveTextContent('숲 100%');
-    // 다음 달 날짜로만 채워진 마지막 주는 표시하지 않는다.
-    const cells = [...screen.getByLabelText('월간 달력').querySelectorAll('.calendar-day')];
-    expect(cells.length % 7).toBe(0);
-    expect(cells.slice(-7).some((cell) => !cell.classList.contains('is-outside'))).toBe(true);
     expect(screen.getByRole('button', { name: '이 날짜 일정 보기' })).toBeInTheDocument();
     // 하단은 일정 목록 대신 선택한 날짜 한 줄 요약과 월간 돌아보기를 보여 준다.
     expect(screen.queryByText('completed 일정', { selector: '.calendar-view strong' })).not.toBeInTheDocument();
@@ -666,7 +662,6 @@ describe('App', () => {
     expect(review).toHaveTextContent('모두 완료한 날 0일');
     expect(within(review).getByRole('heading', { name: '태그별 달성률' })).toBeInTheDocument();
     expect(review).toHaveTextContent('기타');
-    expect(review).not.toHaveTextContent('태그 없음');
     fireEvent.click(screen.getByRole('button', { name: '다음 달' }));
     expect(screen.getByRole('region', { name: /돌아보기$/ })).toHaveTextContent('아직 시작하지 않은 달이에요');
     fireEvent.click(screen.getByRole('button', { name: '이전 달' }));

@@ -530,12 +530,8 @@ function CalendarView({ anchor, selected, today, snapshot, tagsById, onMove, onS
   const closeRef = useRef<HTMLButtonElement>(null);
   const closeHandler = useRef(onClose);
   closeHandler.current = onClose;
+  const days = monthGrid(anchor);
   const anchorMonth = anchor.slice(0, 7);
-  // 다음 달 날짜로만 채워진 마지막 주는 빼서 달력 높이를 줄인다(대부분의 달이 5줄이 된다).
-  const grid = monthGrid(anchor);
-  const lastInMonth = grid.indexOf(`${anchorMonth}-01`) + grid.filter((date) => date.startsWith(anchorMonth)).length;
-  const weeks = Math.ceil(lastInMonth / 7);
-  const days = grid.slice(0, weeks * 7);
   const selectedRate = dayRate(snapshot.todos, snapshot.records, selected);
   const { month, day } = dateParts(selected);
   const stats = useMemo(() => monthStats(snapshot.todos, snapshot.records, anchor, today, new Set(tagsById.keys())), [anchor, snapshot, tagsById, today]);
