@@ -25,8 +25,9 @@ vi.mock('./infrastructure/indexed-db/todoRepository', () => ({
 }));
 
 // 토스 내비게이션 바 뒤로가기(graniteEvent backEvent)를 테스트에서 누를 수 있게 한다.
-const { backListeners } = vi.hoisted(() => ({ backListeners: new Set<() => void>() }));
+const { backListeners, closeMiniApp } = vi.hoisted(() => ({ backListeners: new Set<() => void>(), closeMiniApp: vi.fn(async () => undefined) }));
 vi.mock('@apps-in-toss/web-framework', () => ({
+  Screen: { close: closeMiniApp },
   graniteEvent: {
     addEventListener: (_event: string, { onEvent }: { onEvent: () => void }) => { backListeners.add(onEvent); return () => backListeners.delete(onEvent); },
   },
@@ -267,11 +268,11 @@ describe('App', () => {
     expect(screen.queryByRole('button', { name: /돌아가기/ })).not.toBeInTheDocument();
     await waitFor(() => expect(backListeners.size).toBeGreaterThan(0));
     pressTossBack();
-    expect(screen.getByText('저장하지 않은 내용을 버릴까요?')).toBeInTheDocument();
+    expect(await screen.findByText('저장하지 않은 내용을 버릴까요?')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '계속 작성' }));
     expect(screen.getByRole('textbox', { name: '새 메모' })).toHaveValue('작성 중인 메모');
     pressTossBack();
-    fireEvent.click(screen.getByRole('button', { name: '버리기' }));
+    fireEvent.click(await screen.findByRole('button', { name: '버리기' }));
     expect(await screen.findByText('아직 메모가 없어요')).toBeInTheDocument();
     pressTossBack();
     await waitFor(() => expect(screen.queryByRole('heading', { name: '메모장' })).not.toBeInTheDocument());
@@ -707,6 +708,21 @@ describe('App', () => {
     pressTossBack();
     await waitFor(() => expect(screen.queryByRole('heading', { name: '캘린더' })).not.toBeInTheDocument());
     await waitFor(() => expect(opener).toHaveFocus());
+    await waitFor(() => expect(backListeners.size).toBe(0));
+    // 토스 상단 바 뒤로가기는 방문 기록을 따른다. 캘린더가 열려 있을 때 기록을 되돌리면 캘린더만 닫힌다.
+    fireEvent.click(opener);
+    expect(await screen.findByRole('heading', { name: '캘린더' })).toBeInTheDocument();
+    act(() => window.history.back());
+    await waitFor(() => expect(screen.queryByRole('heading', { name: '캘린더' })).not.toBeInTheDocument());
+    expect(screen.getByRole('main')).toBeInTheDocument();
+    expect(closeMiniApp).not.toHaveBeenCalled();
+    // 빠르게 다시 열고 Esc로 닫아 보호 칸만 남은 첫 화면에서 뒤로가기를 누르면 미니앱을 종료한다.
+    fireEvent.click(opener);
+    expect(await screen.findByRole('heading', { name: '캘린더' })).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('heading', { name: '캘린더' })).not.toBeInTheDocument());
+    act(() => window.history.back());
+    await waitFor(() => expect(closeMiniApp).toHaveBeenCalledTimes(1));
     // 첫 화면에서는 구독하지 않아 토스 뒤로가기가 미니앱 종료로 이어진다.
     expect(backListeners.size).toBe(0);
     fireEvent.click(opener);
